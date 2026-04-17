@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Job Bot{% endblock %}</title>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #0f0f0f; color: #e0e0e0; min-height: 100vh; }
+    a { color: #7eb8f7; text-decoration: none; }
+    nav { background: #1a1a1a; border-bottom: 1px solid #2a2a2a; padding: 0 24px; display: flex; align-items: center; height: 52px; gap: 24px; }
+    nav .brand { font-weight: 700; font-size: 1.1rem; color: #fff; }
+    nav a { color: #aaa; font-size: 0.9rem; }
+    nav a:hover { color: #fff; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+    h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 24px; }
+    h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 12px; color: #bbb; }
+    .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 8px; padding: 20px; }
+    .grid { display: grid; gap: 16px; }
+    .grid-4 { grid-template-columns: repeat(4, 1fr); }
+    .grid-2 { grid-template-columns: 2fr 1fr; }
+    .stat { text-align: center; }
+    .stat .number { font-size: 2.5rem; font-weight: 700; line-height: 1; }
+    .stat .label { font-size: 0.8rem; color: #666; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .ready .number { color: #4ade80; }
+    .scored .number { color: #facc15; }
+    .applied .number { color: #7eb8f7; }
+    .total .number { color: #aaa; }
+    button, .btn { cursor: pointer; border: none; border-radius: 6px; padding: 10px 20px; font-size: 0.9rem; font-weight: 500; }
+    .btn-primary { background: #3b82f6; color: #fff; }
+    .btn-primary:hover { background: #2563eb; }
+    .btn-primary:disabled { background: #1e3a5f; color: #4a6fa5; cursor: not-allowed; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    th { text-align: left; padding: 8px 12px; border-bottom: 1px solid #2a2a2a; color: #666; font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    td { padding: 10px 12px; border-bottom: 1px solid #1e1e1e; }
+    tr:last-child td { border-bottom: none; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 0.75rem; font-weight: 500; }
+    .badge-ready { background: #14532d; color: #4ade80; }
+    .badge-scored { background: #422006; color: #facc15; }
+    .badge-new { background: #1e3a5f; color: #7eb8f7; }
+    .badge-applied { background: #1e1b4b; color: #a5b4fc; }
+    .badge-default { background: #2a2a2a; color: #aaa; }
+    #log-output { background: #111; border: 1px solid #2a2a2a; border-radius: 6px; padding: 16px; font-family: monospace; font-size: 0.8rem; height: 280px; overflow-y: auto; color: #7eb8f7; white-space: pre-wrap; display: none; }
+    .mt-16 { margin-top: 16px; }
+    .mt-24 { margin-top: 24px; }
+    .text-muted { color: #555; font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="brand">Job Bot</span>
+    <a href="/">Dashboard</a>
+  </nav>
+  <div class="container">
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

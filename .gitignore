@@ -1,0 +1,51 @@
+config/user_profile.yaml
+config/job_preferences.yaml
+config/scraper_config.yaml
+config/target_roles.yaml
+data/
+cv.md
+
+# Playwright / browser automation artifacts
+*.png
+*.jpg
+screenshots/
+videos/
+playwright-report/
+test-results/
+
+# Bot session data and logs
+logs/
+*.log
+data/logs/
+data/sessions/
+*.tmp
+
+# Python virtual env variations
+.env.local
+.env.*.local
+env/
+.env
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.DS_Store
+
+# Editor junk
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+
+#claude
+CLAUDE.md
+.claude
+career-ops/

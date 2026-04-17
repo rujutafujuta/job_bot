@@ -1,0 +1,104 @@
+# ============================================================
+# USER PROFILE — copy this to user_profile.yaml and fill in
+# This file is gitignored. Never commit user_profile.yaml.
+# ============================================================
+
+personal:
+  full_name: "Jane Doe"              # Full legal name (used in resume filenames + form fill)
+  email: "jane@example.com"          # Personal email (used on applications)
+  phone: "+1 555-000-0000"
+  address: "San Francisco, CA"       # City, State
+  linkedin_url: "https://linkedin.com/in/janedoe"
+  github_url: "https://github.com/janedoe"      # Optional
+  portfolio_url: ""                              # Optional
+
+visa:
+  status: "US Citizen"               # US Citizen / Green Card / H1B / OPT / etc.
+  requires_sponsorship: false
+  authorized_to_work: true
+  work_auth_expiry: ""               # Optional — if OPT/H1B, e.g. "2026-08-01"
+
+employment:
+  currently_employed: true
+  notice_period_days: 14             # Days notice required; 0 if not employed
+  earliest_start_date: ""            # Optional override, e.g. "2025-09-01"
+
+resume:
+  master_tex_path: "data/master_resume.tex"
+  output_name_format: "{full_name}_{company}_resume"   # PDF and .tex naming
+
+target:
+  roles:
+    - "Software Engineer"
+    - "Backend Engineer"
+    - "Senior Software Engineer"
+  seniority:
+    - "mid"
+    - "senior"                       # junior / mid / senior / staff / principal
+  job_type:
+    - "full-time"                    # full-time / contract / part-time
+  locations:
+    - "San Francisco, CA"
+    - "New York, NY"
+    - "Remote"
+  remote_preference: "hybrid"        # remote / hybrid / onsite / any
+  salary_min: 150000                 # PRIVATE — used for matching only, never sent to employers
+  desired_salary: 160000             # What to enter on application salary fields
+  willing_to_relocate: false
+  industries_preferred:
+    - "fintech"
+    - "infrastructure"
+    - "devtools"
+  industries_excluded:
+    - "gambling"
+    - "defense"
+  company_size:
+    - "startup"
+    - "mid"
+    - "enterprise"                   # startup / mid / enterprise / any
+
+skills:
+  primary:
+    - "Python"
+    - "Go"
+    - "PostgreSQL"
+    - "AWS"
+  secondary:
+    - "Kubernetes"
+    - "Terraform"
+    - "Redis"
+  years_experience: 5
+  education:
+    degree: "Bachelor of Science, Computer Science"
+    school: "University of California, Berkeley"
+    graduation_year: 2019
+    gpa: ""                          # Optional — leave blank if you prefer not to list
+  certifications: []                 # e.g. ["AWS Solutions Architect", "CKA"]
+
+outreach:
+  cold_email_tone: "friendly"        # formal / friendly / concise
+  email_signature: |
+    Jane Doe
+    jane@example.com | linkedin.com/in/janedoe
+
+# EEO fields — all optional. You control what gets submitted to each form.
+eeo:
+  disability_status: "prefer_not_to_say"   # yes / no / prefer_not_to_say
+  veteran_status: "prefer_not_to_say"      # yes / no / prefer_not_to_say
+  race_ethnicity: "prefer_not_to_say"      # varies by form; prefer_not_to_say is always safe
+
+motivation: |
+  I want to work on infrastructure and developer tooling that makes engineering teams 10x faster.
+  I value autonomy, technical depth, and teams that ship often.
+
+match_threshold: 70                  # Jobs scoring below this are logged but skipped (0-100)
+auto_apply: false                    # Always false — bot prompts Y/N before each application
+
+# ============================================================
+# LEARNED ANSWERS — auto-populated as bot encounters new fields
+# You can pre-fill any of these to skip prompts.
+# ============================================================
+learned_answers:
+  driver_license: null               # true / false
+  how_did_you_hear: "LinkedIn"       # Default answer for "How did you hear about us?"
+  # Additional fields are added here automatically during application runs

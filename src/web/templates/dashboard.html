@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Job Bot{% endblock %}
+
+{% block content %}
+<h1>Dashboard</h1>
+
+<!-- Stats row -->
+<div class="grid grid-4">
+  <div class="card stat ready">
+    <div class="number">{{ ready }}</div>
+    <div class="label">Ready to apply</div>
+  </div>
+  <div class="card stat scored">
+    <div class="number">{{ scored }}</div>
+    <div class="label">Scored (70–94)</div>
+  </div>
+  <div class="card stat applied">
+    <div class="number">{{ applied }}</div>
+    <div class="label">Applied</div>
+  </div>
+  <div class="card stat total">
+    <div class="number">{{ total }}</div>
+    <div class="label">Total tracked</div>
+  </div>
+</div>
+
+<!-- Run pipeline -->
+<div class="card mt-24">
+  <h2>Pipeline</h2>
+  <button
+    id="run-btn"
+    class="btn btn-primary"
+    onclick="runPipeline()"
+  >Run Now</button>
+  <div id="log-output" class="mt-16"></div>
+</div>
+
+<!-- Activity feed -->
+<div class="card mt-24">
+  <h2>Recent Activity</h2>
+  {% if activity %}
+  <table>
+    <thead>
+      <tr>
+        <th>Company</th>
+        <th>Title</th>
+        <th>Status</th>
+        <th>Updated</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in activity %}
+      <tr>
+        <td>{{ item.company }}</td>
+        <td>{{ item.title }}</td>
+        <td>
+          <span class="badge badge-{{ item.status if item.status in ['ready','scored','new','applied'] else 'default' }}">
+            {{ item.status }}
+          </span>
+        </td>
+        <td class="text-muted">{{ item.updated_at[:16] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="text-muted">No jobs tracked yet. Run the pipeline to get started.</p>
+  {% endif %}
+</div>
+
+<script>
+function runPipeline() {
+  const btn = document.getElementById('run-btn');
+  const log = document.getElementById('log-output');
+  btn.disabled = true;
+  btn.textContent = 'Running…';
+  log.style.display = 'block';
+  log.textContent = '';
+
+  fetch('/run', { method: 'POST' })
+    .then(resp => {
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      function read() {
+        reader.read().then(({ done, value }) => {
+          if (done) {
+            btn.disabled = false;
+            btn.textContent = 'Run Now';
+            return;
+          }
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              log.textContent += line.slice(6) + '\n';
+              log.scrollTop = log.scrollHeight;
+            }
+          }
+          read();
+        });
+      }
+      read();
+    })
+    .catch(err => {
+      log.textContent += '[error] ' + err + '\n';
+      btn.disabled = false;
+      btn.textContent = 'Run Now';
+    });
+}
+</script>
+{% endblock %}
