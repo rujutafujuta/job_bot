@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+{% block title %}Review — Job Bot{% endblock %}
+
+{% block content %}
+<style>
+  .tabs { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 1px solid #2a2a2a; padding-bottom: 0; }
+  .tab-btn { background: none; border: none; color: #666; padding: 10px 20px; font-size: 0.9rem; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tab-btn.active { color: #fff; border-bottom-color: #3b82f6; }
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+  .job-card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+  .job-card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+  .job-title { font-size: 1rem; font-weight: 600; color: #fff; }
+  .job-company { color: #888; font-size: 0.875rem; margin-top: 2px; }
+  .job-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .score-badge { display: inline-block; padding: 3px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
+  .score-high { background: #14532d; color: #4ade80; }
+  .score-mid { background: #422006; color: #facc15; }
+  .legitimacy-verified { background: #14532d; color: #4ade80; }
+  .legitimacy-uncertain { background: #3f3f00; color: #fbbf24; }
+  .legitimacy-ghost { background: #450a0a; color: #f87171; }
+  .referral-badge { background: #1e1b4b; color: #a5b4fc; }
+  .job-actions { display: flex; gap: 8px; margin-top: 16px; }
+  .btn-sm { padding: 7px 14px; font-size: 0.8rem; border-radius: 5px; cursor: pointer; border: none; font-weight: 500; }
+  .btn-green { background: #15803d; color: #fff; }
+  .btn-green:hover { background: #166534; }
+  .btn-gray { background: #2a2a2a; color: #aaa; }
+  .btn-gray:hover { background: #333; color: #fff; }
+  .btn-blue { background: #1d4ed8; color: #fff; }
+  .btn-blue:hover { background: #1e40af; }
+  details { margin-top: 12px; }
+  details summary { color: #7eb8f7; font-size: 0.85rem; cursor: pointer; user-select: none; }
+  details summary:hover { color: #fff; }
+  .detail-content { margin-top: 12px; background: #111; border: 1px solid #222; border-radius: 6px; padding: 16px; font-size: 0.82rem; line-height: 1.6; color: #ccc; white-space: pre-wrap; max-height: 400px; overflow-y: auto; }
+  .prepare-spinner { display: none; margin-left: 8px; color: #888; font-size: 0.8rem; }
+  .empty-state { text-align: center; padding: 48px 24px; color: #555; }
+  .priority-label { color: #f59e0b; font-size: 0.75rem; }
+</style>
+
+<h1>Review</h1>
+
+<div class="tabs">
+  <button class="tab-btn active" onclick="switchTab('ready', this)">
+    Ready to Apply
+    <span class="badge badge-ready" style="margin-left:6px">{{ ready_jobs | length }}</span>
+  </button>
+  <button class="tab-btn" onclick="switchTab('scored', this)">
+    Scored (70–94)
+    <span class="badge badge-scored" style="margin-left:6px">{{ scored_jobs | length }}</span>
+  </button>
+</div>
+
+<!-- Ready Tab -->
+<div id="tab-ready" class="tab-pane active">
+  {% if ready_jobs %}
+    {% for job in ready_jobs %}
+    <div class="job-card" id="job-{{ job.id }}">
+      <div class="job-card-header">
+        <div>
+          <div class="job-title">{{ job.title }}</div>
+          <div class="job-company">{{ job.company }}{% if job.location %} · {{ job.location }}{% endif %}</div>
+          <div class="job-meta">
+            {% if job.stage2_score %}
+            <span class="score-badge score-high">Stage 2: {{ job.stage2_score }}/100</span>
+            {% elif job.stage1_score %}
+            <span class="score-badge score-mid">Stage 1: {{ job.stage1_score }}/100</span>
+            {% endif %}
+            {% if job.priority_score %}
+            <span class="priority-label">Priority: {{ job.priority_score }}</span>
+            {% endif %}
+            {% if job.referral_contact %}
+            <span class="badge referral-badge">🔗 {{ job.referral_contact }}</span>
+            {% endif %}
+            {% if "_legitimacy" in job.get("notes", "") or job.get("evaluation_report_path") %}
+              {# legitimacy shown inline if detectable #}
+            {% endif %}
+          </div>
+        </div>
+        <div style="flex-shrink:0">
+          <a href="{{ job.url }}" target="_blank" class="btn-sm btn-gray" style="text-decoration:none;display:inline-block">View Posting ↗</a>
+        </div>
+      </div>
+
+      <!-- Expandable sections -->
+      {% if job._report_text %}
+      <details>
+        <summary>Evaluation Report</summary>
+        <div class="detail-content">{{ job._report_text }}</div>
+      </details>
+      {% endif %}
+
+      {% if job.tailored_resume_path %}
+      <details>
+        <summary>Tailored Resume</summary>
+        <div class="detail-content">
+          <a href="/resume/{{ job.id }}" target="_blank" class="btn-sm btn-blue" style="text-decoration:none;display:inline-block;margin-bottom:8px">Download PDF ↓</a>
+        </div>
+      </details>
+      {% endif %}
+
+      {% if job._cover_letter_text %}
+      <details>
+        <summary>Cover Letter</summary>
+        <div class="detail-content">{{ job._cover_letter_text }}</div>
+      </details>
+      {% endif %}
+
+      <div class="job-actions">
+        <a href="{{ job.url }}" target="_blank" class="btn-sm btn-green" style="text-decoration:none">Apply ↗</a>
+        <button class="btn-sm btn-gray"
+          hx-post="/skip/{{ job.id }}"
+          hx-target="#job-{{ job.id }}"
+          hx-swap="outerHTML"
+          hx-confirm="Skip this job?">
+          Skip
+        </button>
+        {% if job.date_posted %}
+        <span class="text-muted" style="align-self:center;font-size:0.78rem">Posted {{ job.date_posted[:10] }}</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+  <div class="empty-state">
+    <p>No jobs ready to apply yet.</p>
+    <p class="text-muted mt-16">Jobs scoring 95+ will appear here after Stage 2 evaluation runs.</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Scored Tab -->
+<div id="tab-scored" class="tab-pane">
+  {% if scored_jobs %}
+    {% for job in scored_jobs %}
+    <div class="job-card" id="job-{{ job.id }}">
+      <div class="job-card-header">
+        <div>
+          <div class="job-title">{{ job.title }}</div>
+          <div class="job-company">{{ job.company }}{% if job.location %} · {{ job.location }}{% endif %}</div>
+          <div class="job-meta">
+            <span class="score-badge score-mid">Stage 1: {{ job.stage1_score }}/100</span>
+            {% if job.priority_score %}
+            <span class="priority-label">Priority: {{ job.priority_score }}</span>
+            {% endif %}
+          </div>
+          {% if job.stage1_reasoning %}
+          <div class="text-muted" style="margin-top:6px;font-size:0.82rem">{{ job.stage1_reasoning }}</div>
+          {% endif %}
+        </div>
+        <div style="flex-shrink:0">
+          <a href="{{ job.url }}" target="_blank" class="btn-sm btn-gray" style="text-decoration:none;display:inline-block">View ↗</a>
+        </div>
+      </div>
+
+      <div class="job-actions">
+        <button
+          class="btn-sm btn-blue"
+          id="prepare-btn-{{ job.id }}"
+          onclick="prepareJob({{ job.id }})">
+          Prepare (Stage 2)
+        </button>
+        <span class="prepare-spinner" id="spinner-{{ job.id }}">Running evaluation…</span>
+        <button class="btn-sm btn-gray"
+          hx-post="/skip/{{ job.id }}"
+          hx-target="#job-{{ job.id }}"
+          hx-swap="outerHTML"
+          hx-confirm="Skip this job?">
+          Skip
+        </button>
+      </div>
+      <div id="prepare-log-{{ job.id }}" style="display:none;margin-top:12px;background:#111;border:1px solid #222;border-radius:6px;padding:12px;font-family:monospace;font-size:0.78rem;color:#7eb8f7;max-height:200px;overflow-y:auto;white-space:pre-wrap"></div>
+    </div>
+    {% endfor %}
+  {% else %}
+  <div class="empty-state">
+    <p>No scored jobs yet.</p>
+    <p class="text-muted mt-16">Jobs scoring 70–94 will appear here after the pipeline runs.</p>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  btn.classList.add('active');
+}
+
+function prepareJob(jobId) {
+  const btn = document.getElementById('prepare-btn-' + jobId);
+  const spinner = document.getElementById('spinner-' + jobId);
+  const log = document.getElementById('prepare-log-' + jobId);
+
+  btn.disabled = true;
+  spinner.style.display = 'inline';
+  log.style.display = 'block';
+  log.textContent = '';
+
+  fetch('/prepare/' + jobId, { method: 'POST' })
+    .then(resp => {
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      function read() {
+        reader.read().then(({ done, value }) => {
+          if (done) {
+            spinner.style.display = 'none';
+            btn.textContent = '✓ Done — reload to see in Ready tab';
+            btn.disabled = true;
+            return;
+          }
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              log.textContent += line.slice(6) + '\n';
+              log.scrollTop = log.scrollHeight;
+            }
+          }
+          read();
+        });
+      }
+      read();
+    })
+    .catch(err => {
+      spinner.style.display = 'none';
+      btn.disabled = false;
+      log.textContent += '[error] ' + err + '\n';
+    });
+}
+</script>
+{% endblock %}

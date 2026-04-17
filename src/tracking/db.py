@@ -265,6 +265,85 @@ def add_contact(
         )
 
 
+def get_job_by_id(job_id: int, db_path: Path = _DEFAULT_DB) -> dict | None:
+    """Return a single job by integer primary key, or None if not found."""
+    with _connect(db_path) as conn:
+        row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    return _row_to_dict(row) if row else None
+
+
+def update_job_by_id(job_id: int, fields: dict, db_path: Path = _DEFAULT_DB) -> bool:
+    """
+    Update specific fields on an existing job by integer id.
+
+    Returns True if a row was updated, False if id not found.
+    Raises ValueError on invalid status.
+    """
+    if "status" in fields:
+        _validate_status(fields["status"])
+
+    cols = [c for c in _JOB_COLUMNS if c in fields and c != "url"]
+    if not cols:
+        return False
+
+    set_clause = ", ".join(f"{c} = ?" for c in cols)
+    values = [fields[c] for c in cols] + [job_id]
+
+    with _connect(db_path) as conn:
+        cursor = conn.execute(
+            f"UPDATE jobs SET {set_clause}, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?",
+            values,
+        )
+        return cursor.rowcount > 0
+
+
+def get_jobs_by_statuses(statuses: list[str], db_path: Path = _DEFAULT_DB) -> list[dict]:
+    """Return all jobs whose status is in the given list, newest first."""
+    if not statuses:
+        return []
+    placeholders = ", ".join("?" * len(statuses))
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"SELECT * FROM jobs WHERE status IN ({placeholders}) ORDER BY created_at DESC",
+            statuses,
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def get_priority_queue(limit: int = 5, db_path: Path = _DEFAULT_DB) -> list[dict]:
+    """Return top N jobs from scored+ready sorted by priority_score descending."""
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM jobs
+            WHERE status IN ('scored', 'ready')
+            ORDER BY priority_score DESC, created_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def get_followup_due(db_path: Path = _DEFAULT_DB) -> list[dict]:
+    """Return applied jobs where follow_up_1_date or follow_up_2_date is today or past."""
+    today = __import__("datetime").date.today().isoformat()
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM jobs
+            WHERE status = 'applied'
+              AND (
+                (follow_up_1_date != '' AND follow_up_1_date <= ?)
+                OR (follow_up_2_date != '' AND follow_up_2_date <= ?)
+              )
+            ORDER BY follow_up_1_date ASC
+            """,
+            (today, today),
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
 def get_recent_activity(limit: int = 10, db_path: Path = _DEFAULT_DB) -> list[dict]:
     """Return the most recently updated jobs for the activity feed."""
     with _connect(db_path) as conn:

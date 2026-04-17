@@ -24,6 +24,55 @@
   </div>
 </div>
 
+<!-- Follow-up reminders -->
+{% if followups_due %}
+<div class="card mt-24" style="border-color:#422006">
+  <h2 style="color:#facc15">⚠ Follow-ups Due ({{ followups_due | length }})</h2>
+  <table>
+    <thead>
+      <tr><th>Company</th><th>Title</th><th>Applied</th><th>Follow-up</th></tr>
+    </thead>
+    <tbody>
+      {% for job in followups_due %}
+      <tr>
+        <td>{{ job.company }}</td>
+        <td><a href="{{ job.url }}" target="_blank">{{ job.title }}</a></td>
+        <td class="text-muted">{{ job.applied_date[:10] if job.applied_date else '—' }}</td>
+        <td class="text-muted">{{ job.follow_up_1_date[:10] if job.follow_up_1_date else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- Priority queue -->
+{% if priority_queue %}
+<div class="card mt-24">
+  <h2>Priority Queue <a href="/review" style="font-size:0.8rem;font-weight:400;margin-left:8px">View all →</a></h2>
+  <table>
+    <thead>
+      <tr><th>Priority</th><th>Company</th><th>Title</th><th>Score</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      {% for job in priority_queue %}
+      <tr>
+        <td style="color:#f59e0b;font-weight:600">{{ job.priority_score }}</td>
+        <td>{{ job.company }}</td>
+        <td><a href="{{ job.url }}" target="_blank">{{ job.title }}</a></td>
+        <td>{{ job.stage2_score or job.stage1_score or '—' }}</td>
+        <td>
+          <span class="badge badge-{{ job.status if job.status in ['ready','scored'] else 'default' }}">
+            {{ job.status }}
+          </span>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 <!-- Run pipeline -->
 <div class="card mt-24">
   <h2>Pipeline</h2>

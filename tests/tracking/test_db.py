@@ -14,11 +14,16 @@ from src.tracking.db import (
     count_by_status,
     get_all_jobs,
     get_job,
+    get_job_by_id,
     get_jobs_by_status,
+    get_jobs_by_statuses,
+    get_priority_queue,
+    get_followup_due,
     init_db,
     insert_job,
     mark_discarded,
     update_job,
+    update_job_by_id,
 )
 
 
@@ -196,6 +201,97 @@ class TestAddContact:
                 ("Alice Smith", "Acme"),
             ).fetchone()[0]
         assert count == 1
+
+
+class TestGetJobById:
+    def test_returns_job_by_id(self, db):
+        insert_job({"url": "https://a.com/1", "title": "Dev", "company": "X"}, db)
+        job = get_job("https://a.com/1", db)
+        result = get_job_by_id(job["id"], db)
+        assert result is not None
+        assert result["title"] == "Dev"
+
+    def test_returns_none_for_missing_id(self, db):
+        assert get_job_by_id(9999, db) is None
+
+
+class TestUpdateJobById:
+    def test_updates_status_by_id(self, db):
+        insert_job({"url": "https://a.com/1", "title": "Dev", "company": "X"}, db)
+        job = get_job("https://a.com/1", db)
+        update_job_by_id(job["id"], {"status": "scored"}, db)
+        assert get_job_by_id(job["id"], db)["status"] == "scored"
+
+    def test_returns_false_for_missing_id(self, db):
+        assert update_job_by_id(9999, {"status": "scored"}, db) is False
+
+    def test_raises_on_invalid_status(self, db):
+        insert_job({"url": "https://a.com/1", "title": "Dev", "company": "X"}, db)
+        job = get_job("https://a.com/1", db)
+        with pytest.raises(ValueError):
+            update_job_by_id(job["id"], {"status": "invalid"}, db)
+
+    def test_updates_multiple_fields(self, db):
+        insert_job({"url": "https://a.com/1", "title": "Dev", "company": "X"}, db)
+        job = get_job("https://a.com/1", db)
+        update_job_by_id(job["id"], {"stage2_score": 92, "notes": "great fit"}, db)
+        updated = get_job_by_id(job["id"], db)
+        assert updated["stage2_score"] == 92
+        assert updated["notes"] == "great fit"
+
+
+class TestGetJobsByStatuses:
+    def test_returns_jobs_matching_any_status(self, db):
+        insert_job({"url": "https://a.com/1", "title": "A", "company": "X", "status": "scored"}, db)
+        insert_job({"url": "https://b.com/2", "title": "B", "company": "Y", "status": "ready"}, db)
+        insert_job({"url": "https://c.com/3", "title": "C", "company": "Z", "status": "new"}, db)
+        results = get_jobs_by_statuses(["scored", "ready"], db)
+        titles = {r["title"] for r in results}
+        assert titles == {"A", "B"}
+
+    def test_empty_list_returns_nothing(self, db):
+        insert_job({"url": "https://a.com/1", "title": "A", "company": "X"}, db)
+        assert get_jobs_by_statuses([], db) == []
+
+
+class TestGetPriorityQueue:
+    def test_returns_top_n_by_priority_score(self, db):
+        insert_job({"url": "https://a.com/1", "title": "A", "company": "X", "status": "ready", "priority_score": 10}, db)
+        insert_job({"url": "https://b.com/2", "title": "B", "company": "Y", "status": "ready", "priority_score": 50}, db)
+        insert_job({"url": "https://c.com/3", "title": "C", "company": "Z", "status": "scored", "priority_score": 30}, db)
+        results = get_priority_queue(limit=2, db_path=db)
+        assert results[0]["title"] == "B"
+        assert results[1]["title"] == "C"
+
+    def test_excludes_non_actionable_statuses(self, db):
+        insert_job({"url": "https://a.com/1", "title": "A", "company": "X", "status": "applied", "priority_score": 99}, db)
+        insert_job({"url": "https://b.com/2", "title": "B", "company": "Y", "status": "ready", "priority_score": 1}, db)
+        results = get_priority_queue(limit=5, db_path=db)
+        assert all(r["status"] in ("scored", "ready") for r in results)
+
+
+class TestGetFollowupDue:
+    def test_returns_jobs_with_overdue_followup(self, db):
+        insert_job({
+            "url": "https://a.com/1", "title": "A", "company": "X",
+            "status": "applied", "follow_up_1_date": "2020-01-01",
+        }, db)
+        results = get_followup_due(db)
+        assert len(results) == 1
+
+    def test_excludes_future_followup_dates(self, db):
+        insert_job({
+            "url": "https://a.com/1", "title": "A", "company": "X",
+            "status": "applied", "follow_up_1_date": "2099-12-31",
+        }, db)
+        assert get_followup_due(db) == []
+
+    def test_excludes_non_applied_jobs(self, db):
+        insert_job({
+            "url": "https://a.com/1", "title": "A", "company": "X",
+            "status": "scored", "follow_up_1_date": "2020-01-01",
+        }, db)
+        assert get_followup_due(db) == []
 
 
 class TestValidStatuses:

@@ -1,92 +1,98 @@
-"""Cover letter generation via Claude."""
+"""Cover letter generation via Claude Code CLI subprocess."""
 
 from __future__ import annotations
 
-from pathlib import Path
 import re
+from datetime import date
+from pathlib import Path
 
-from src.scrapers.base import JobPosting
-from src.pipeline.matcher import MatchResult
-from src.utils import claude_client
+from src.utils.claude_runner import run_claude
 
-_SYSTEM = (
-    "You are an expert cover letter writer. "
-    "You write concise, specific, compelling cover letters that don't sound generic. "
-    "No fluff. No clichés. Max 3 short paragraphs."
-)
+_COVER_LETTERS_DIR = Path("data/cover_letters")
 
-_PROMPT_TEMPLATE = """
-Write a cover letter for this job application.
+_PROMPT_TEMPLATE = """\
+You are an expert career coach writing a cover letter for a job application.
 
-=== CANDIDATE ===
-Name: {full_name}
-Email: {email}
-LinkedIn: {linkedin}
-Years of experience: {years_experience}
-Primary skills: {primary_skills}
-Motivation: {motivation}
+Write a compelling, authentic cover letter for the candidate. Rules:
+1. Use the Personalization Plan hooks — lead with the strongest specific angle.
+2. Draw content ONLY from the tailored resume — no invented details.
+3. Reference the candidate's career goals and motivations naturally.
+4. Tone: confident and direct. No hollow phrases ("I am passionate about...").
+5. Length: 3 short paragraphs. No longer. No headers.
+6. Close with a specific, genuine statement — not a generic "I look forward to hearing from you."
+
+=== PERSONALIZATION PLAN (hooks to use) ===
+{personalization_plan}
 
 === JOB ===
-Title: {job_title}
 Company: {company}
-Key requirements / keywords: {keywords}
-Description excerpt:
-{description_excerpt}
+Title: {title}
+Description (excerpted): {description}
 
-=== INSTRUCTIONS ===
-- Opening: Hook that references something specific about {company} or the role
-- Middle: 2-3 concrete achievements that map to the role's needs (use numbers if possible)
-- Close: Clear call to action, no "I look forward to hearing from you" clichés
-- Tone: {tone}
-- Sign off with candidate's name only (no contact info — it'll be in the email signature)
-- Return ONLY the cover letter text, no subject line, no headers
+=== CANDIDATE PROFILE ===
+Name: {name}
+Career goals: {career_goals}
+Motivations: {motivations}
+Strengths: {strengths}
+
+=== TAILORED RESUME (reference only) ===
+{tailored_resume}
+
+Output ONLY the cover letter text. No subject line, no "Dear [hiring manager]" opener needed \
+unless it fits naturally. No explanation.
 """
 
 
-def generate_cover_letter(
-    posting: JobPosting,
-    match_result: MatchResult,
-    profile: dict,
-    output_dir: Path = Path("data/cover_letters"),
-    dry_run: bool = False,
-) -> Path | None:
-    """
-    Generate a cover letter for the job posting and save to output_dir.
+def _extract_block_e(evaluation_report: str) -> str:
+    match = re.search(
+        r"##\s*Block E.*?(?=##\s*Block F|$)",
+        evaluation_report,
+        re.DOTALL | re.IGNORECASE,
+    )
+    return match.group(0).strip() if match else evaluation_report
 
-    Returns:
-        Path to the saved .txt cover letter, or None if dry_run.
+
+def _slugify(text: str) -> str:
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9]+", "_", text)
+    return text.strip("_")[:40]
+
+
+def generate_cover_letter(
+    job: dict,
+    evaluation_report: str,
+    tailored_resume: str,
+    profile: dict,
+    cover_letters_dir: Path = _COVER_LETTERS_DIR,
+) -> Path:
+    """
+    Generate a cover letter for the given job using Block E hooks and profile context.
+
+    Returns path to the written .md file.
     """
     personal = profile.get("personal", {})
-    skills = profile.get("skills", {})
-    outreach = profile.get("outreach", {})
+    ctx = profile.get("cover_letter_context", {})
 
     prompt = _PROMPT_TEMPLATE.format(
-        full_name=personal.get("full_name", ""),
-        email=personal.get("email", ""),
-        linkedin=personal.get("linkedin_url", ""),
-        years_experience=skills.get("years_experience", 0),
-        primary_skills=", ".join(skills.get("primary", [])),
-        motivation=profile.get("motivation", ""),
-        job_title=posting.title,
-        company=posting.company,
-        keywords=", ".join(match_result.keywords),
-        description_excerpt=posting.description[:2000],
-        tone=outreach.get("cold_email_tone", "friendly"),
+        personalization_plan=_extract_block_e(evaluation_report),
+        company=job.get("company", ""),
+        title=job.get("title", ""),
+        description=(job.get("description", "") or "")[:1500],
+        name=personal.get("full_name", "Candidate"),
+        career_goals=ctx.get("career_goals", ""),
+        motivations=ctx.get("motivations", ""),
+        strengths=ctx.get("strengths", ""),
+        tailored_resume=tailored_resume[:3000],
     )
 
-    print(f"[cover_letter] Generating for {posting.company}")
+    content = run_claude(prompt, timeout=120)
 
-    if dry_run:
-        print(f"[cover_letter][DRY RUN] Would generate cover letter for {posting.company}")
-        return None
-
-    letter = claude_client.ask(prompt, system=_SYSTEM, max_tokens=2048)
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    company_slug = re.sub(r"[^\w]", "_", posting.company)
-    full_name_slug = personal.get("full_name", "candidate").replace(" ", "_")
-    out_path = output_dir / f"{full_name_slug}_{company_slug}_cover_letter.txt"
-    out_path.write_text(letter, encoding="utf-8")
-
-    print(f"[cover_letter] Saved: {out_path}")
+    cover_letters_dir.mkdir(parents=True, exist_ok=True)
+    filename = (
+        f"{_slugify(job.get('company', 'unknown'))}_"
+        f"{_slugify(job.get('title', 'unknown'))}_"
+        f"{date.today().isoformat()}.md"
+    )
+    out_path = cover_letters_dir / filename
+    out_path.write_text(content, encoding="utf-8")
     return out_path
