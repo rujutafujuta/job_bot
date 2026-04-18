@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Applied — Job Bot{% endblock %}
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;">
+  <h1 style="margin:0;">Applied Jobs</h1>
+  <a href="/applied/export" class="btn btn-primary" style="font-size:0.85rem;padding:8px 16px;">
+    Export Excel
+  </a>
+</div>
+
+{% if not jobs %}
+  <div class="card" style="color:#555;text-align:center;padding:48px;">
+    No applications yet. Apply to jobs from the <a href="/review">Review</a> page.
+  </div>
+{% else %}
+  <div class="card" style="overflow:auto;">
+    <table>
+      <thead>
+        <tr>
+          <th>Company</th>
+          <th>Role</th>
+          <th>Applied</th>
+          <th>Status</th>
+          <th>Follow-up 1</th>
+          <th>Follow-up 2</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for job in jobs %}
+        <tr id="job-row-{{ job.id }}">
+          <td>
+            <a href="{{ job.url }}" target="_blank" rel="noopener" style="font-weight:500;">{{ job.company }}</a>
+          </td>
+          <td style="color:#ccc;">{{ job.title }}</td>
+          <td style="color:#666;white-space:nowrap;">{{ job.applied_date or '—' }}</td>
+          <td>
+            <span id="badge-{{ job.id }}">
+              <span class="badge badge-{{ job.status }}">{{ job.status.replace('_', ' ') }}</span>
+            </span>
+            <select class="status-select" style="margin-left:6px;"
+              hx-patch="/jobs/{{ job.id }}/status"
+              hx-target="#badge-{{ job.id }}"
+              hx-swap="innerHTML"
+              name="status">
+              {% set pipeline_statuses = [
+                'applied','phone_screen','technical','offer',
+                'negotiating','accepted','withdrawn','rejected','ghosted'
+              ] %}
+              {% for s in pipeline_statuses %}
+              <option value="{{ s }}" {% if s == job.status %}selected{% endif %}>{{ s.replace('_', ' ') }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td style="white-space:nowrap;{% if job.follow_up_1_date and job.follow_up_1_date <= today %}color:#facc15;{% else %}color:#555;{% endif %}">
+            {{ job.follow_up_1_date or '—' }}
+          </td>
+          <td style="white-space:nowrap;{% if job.follow_up_2_date and job.follow_up_2_date <= today %}color:#facc15;{% else %}color:#555;{% endif %}">
+            {{ job.follow_up_2_date or '—' }}
+          </td>
+          <td style="color:#666;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ job.notes }}">
+            {{ job.notes or '' }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+{% endblock %}

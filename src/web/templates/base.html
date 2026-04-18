@@ -43,6 +43,15 @@
     .badge-applied { background: #1e1b4b; color: #a5b4fc; }
     .badge-default { background: #2a2a2a; color: #aaa; }
     #log-output { background: #111; border: 1px solid #2a2a2a; border-radius: 6px; padding: 16px; font-family: monospace; font-size: 0.8rem; height: 280px; overflow-y: auto; color: #7eb8f7; white-space: pre-wrap; display: none; }
+    .badge-phone_screen { background: #1e3a5f; color: #93c5fd; }
+    .badge-technical  { background: #1e1b4b; color: #c4b5fd; }
+    .badge-offer      { background: #14532d; color: #4ade80; }
+    .badge-negotiating { background: #422006; color: #fb923c; }
+    .badge-accepted   { background: #14532d; color: #86efac; }
+    .badge-withdrawn  { background: #2a2a2a; color: #9ca3af; }
+    .badge-rejected   { background: #450a0a; color: #fca5a5; }
+    .badge-ghosted    { background: #1c1917; color: #78716c; }
+    select.status-select { background: #1a1a1a; color: #e0e0e0; border: 1px solid #2a2a2a; border-radius: 6px; padding: 4px 8px; font-size: 0.8rem; cursor: pointer; }
     .mt-16 { margin-top: 16px; }
     .mt-24 { margin-top: 24px; }
     .text-muted { color: #555; font-size: 0.8rem; }
@@ -53,6 +62,8 @@
     <span class="brand">Job Bot</span>
     <a href="/">Dashboard</a>
     <a href="/review">Review</a>
+    <a href="/applied">Applied</a>
+    <a href="/outreach">Outreach</a>
   </nav>
   <div class="container">
     {% block content %}{% endblock %}

@@ -344,6 +344,70 @@ def get_followup_due(db_path: Path = _DEFAULT_DB) -> list[dict]:
     return [_row_to_dict(r) for r in rows]
 
 
+_APPLIED_PIPELINE_STATUSES = (
+    "applied", "phone_screen", "technical", "offer", "negotiating",
+    "accepted", "withdrawn", "rejected", "ghosted",
+)
+
+
+def get_applied_jobs(db_path: Path = _DEFAULT_DB) -> list[dict]:
+    """Return all jobs in post-application pipeline statuses, newest first."""
+    placeholders = ", ".join("?" * len(_APPLIED_PIPELINE_STATUSES))
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"SELECT * FROM jobs WHERE status IN ({placeholders}) ORDER BY applied_date DESC, created_at DESC",
+            list(_APPLIED_PIPELINE_STATUSES),
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def get_pending_outreach(db_path: Path = _DEFAULT_DB) -> list[dict]:
+    """Return jobs with outreach drafts waiting for user action."""
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM jobs WHERE outreach_status = 'pending_user_input' ORDER BY created_at DESC"
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def compute_followup_dates(applied_date_str: str) -> tuple[str, str, str]:
+    """
+    Given an applied date string (YYYY-MM-DD), return follow-up cadence dates.
+
+    Returns:
+        (follow_up_1_date +7d, follow_up_2_date +14d, ghosted_date +30d)
+    """
+    from datetime import date, timedelta
+    applied = date.fromisoformat(applied_date_str)
+    return (
+        (applied + timedelta(days=7)).isoformat(),
+        (applied + timedelta(days=14)).isoformat(),
+        (applied + timedelta(days=30)).isoformat(),
+    )
+
+
+def mark_ghosted_jobs(db_path: Path = _DEFAULT_DB) -> int:
+    """
+    Mark applied jobs as ghosted when their ghosted_date has passed.
+
+    Returns:
+        Number of jobs updated.
+    """
+    today = __import__("datetime").date.today().isoformat()
+    with _connect(db_path) as conn:
+        cursor = conn.execute(
+            """
+            UPDATE jobs
+            SET status = 'ghosted', updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')
+            WHERE status = 'applied'
+              AND ghosted_date != ''
+              AND ghosted_date <= ?
+            """,
+            (today,),
+        )
+        return cursor.rowcount
+
+
 def get_recent_activity(limit: int = 10, db_path: Path = _DEFAULT_DB) -> list[dict]:
     """Return the most recently updated jobs for the activity feed."""
     with _connect(db_path) as conn:

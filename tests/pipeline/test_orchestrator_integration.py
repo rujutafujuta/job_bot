@@ -290,3 +290,120 @@ class TestOrchestratorPreparePhase:
         from src.pipeline.orchestrator import run_prepare_phase
         with pytest.raises(ValueError, match="not found"):
             run_prepare_phase(job_id=9999, db_path=tmp_env["db"], profile_path=tmp_env["profile"], cv_path=tmp_env["cv"])
+
+
+class TestOrchestratorApplyPhase:
+    def _seed_ready_job(self, db, root):
+        from src.tracking.db import insert_job, get_job
+        resume = root / "resume.pdf"
+        resume.write_text("fake pdf")
+        cl = root / "cl.md"
+        cl.write_text("Cover letter")
+        insert_job({
+            "url": "https://acme.com/jobs/1",
+            "title": "Software Engineer", "company": "Acme Corp",
+            "status": "ready", "tailored_resume_path": str(resume),
+            "cover_letter_path": str(cl),
+        }, db)
+        return get_job("https://acme.com/jobs/1", db)
+
+    def test_apply_phase_updates_db_on_submission(self, tmp_env):
+        from src.pipeline.orchestrator import run_apply_phase
+        from src.tracking.db import get_job_by_id
+
+        job = self._seed_ready_job(tmp_env["db"], tmp_env["root"])
+
+        mock_apply = {"submitted": True, "application_link": "https://acme.com/jobs/1", "notes": ""}
+        mock_outreach = {"status": "pending_user_input", "outreach_url": ""}
+
+        with (
+            patch("src.pipeline.orchestrator.apply_to_job", return_value=mock_apply),
+            patch("src.pipeline.orchestrator.find_contact", return_value=MagicMock(found=False, name="", linkedin_url="")),
+            patch("src.pipeline.orchestrator.send_cold_outreach", return_value=mock_outreach),
+        ):
+            result = run_apply_phase(job_id=job["id"], db_path=tmp_env["db"], profile_path=tmp_env["profile"])
+
+        assert result["submitted"] is True
+        updated = get_job_by_id(job["id"], tmp_env["db"])
+        assert updated["status"] == "applied"
+        assert updated["applied_date"] != ""
+        assert updated["follow_up_1_date"] != ""
+        assert updated["ghosted_date"] != ""
+
+    def test_apply_phase_stays_ready_when_not_submitted(self, tmp_env):
+        from src.pipeline.orchestrator import run_apply_phase
+        from src.tracking.db import get_job_by_id
+
+        job = self._seed_ready_job(tmp_env["db"], tmp_env["root"])
+
+        mock_apply = {"submitted": False, "application_link": "https://acme.com/jobs/1", "notes": "Manual required"}
+        mock_outreach = {"status": "pending_user_input", "outreach_url": ""}
+
+        with (
+            patch("src.pipeline.orchestrator.apply_to_job", return_value=mock_apply),
+            patch("src.pipeline.orchestrator.find_contact", return_value=MagicMock(found=False, name="", linkedin_url="")),
+            patch("src.pipeline.orchestrator.send_cold_outreach", return_value=mock_outreach),
+        ):
+            result = run_apply_phase(job_id=job["id"], db_path=tmp_env["db"], profile_path=tmp_env["profile"])
+
+        assert result["submitted"] is False
+        updated = get_job_by_id(job["id"], tmp_env["db"])
+        assert updated["status"] == "ready"
+
+    def test_apply_phase_raises_for_unknown_job(self, tmp_env):
+        from src.pipeline.orchestrator import run_apply_phase
+        with pytest.raises(ValueError, match="not found"):
+            run_apply_phase(job_id=9999, db_path=tmp_env["db"], profile_path=tmp_env["profile"])
+
+    def test_apply_phase_dry_run_does_not_update_db(self, tmp_env):
+        from src.pipeline.orchestrator import run_apply_phase
+        from src.tracking.db import get_job_by_id
+
+        job = self._seed_ready_job(tmp_env["db"], tmp_env["root"])
+
+        mock_apply = {"submitted": True, "application_link": "https://acme.com/jobs/1", "notes": ""}
+        mock_outreach = {"status": "pending_user_input", "outreach_url": ""}
+
+        with (
+            patch("src.pipeline.orchestrator.apply_to_job", return_value=mock_apply),
+            patch("src.pipeline.orchestrator.find_contact", return_value=MagicMock(found=False, name="", linkedin_url="")),
+            patch("src.pipeline.orchestrator.send_cold_outreach", return_value=mock_outreach),
+        ):
+            run_apply_phase(job_id=job["id"], db_path=tmp_env["db"], profile_path=tmp_env["profile"], dry_run=True)
+
+        # Status should remain 'ready' since dry_run=True skips the DB write
+        updated = get_job_by_id(job["id"], tmp_env["db"])
+        assert updated["status"] == "ready"
+
+
+class TestOrchestratorFollowupPhase:
+    def test_followup_marks_ghosted_jobs(self, tmp_env):
+        from src.pipeline.orchestrator import run_followup_phase
+        from src.tracking.db import insert_job, get_job
+
+        insert_job({
+            "url": "https://acme.com/jobs/1",
+            "title": "Dev", "company": "Acme",
+            "status": "applied", "ghosted_date": "2020-01-01",
+        }, tmp_env["db"])
+
+        count = run_followup_phase(db_path=tmp_env["db"])
+        assert count == 1
+        assert get_job("https://acme.com/jobs/1", tmp_env["db"])["status"] == "ghosted"
+
+    def test_followup_ignores_future_ghosted_dates(self, tmp_env):
+        from src.pipeline.orchestrator import run_followup_phase
+        from src.tracking.db import insert_job
+
+        insert_job({
+            "url": "https://acme.com/jobs/1",
+            "title": "Dev", "company": "Acme",
+            "status": "applied", "ghosted_date": "2099-12-31",
+        }, tmp_env["db"])
+
+        count = run_followup_phase(db_path=tmp_env["db"])
+        assert count == 0
+
+    def test_followup_returns_zero_when_nothing_to_do(self, tmp_env):
+        from src.pipeline.orchestrator import run_followup_phase
+        assert run_followup_phase(db_path=tmp_env["db"]) == 0

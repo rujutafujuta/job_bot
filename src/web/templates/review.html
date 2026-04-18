@@ -106,7 +106,13 @@
       {% endif %}
 
       <div class="job-actions">
-        <a href="{{ job.url }}" target="_blank" class="btn-sm btn-green" style="text-decoration:none">Apply ↗</a>
+        <button
+          class="btn-sm btn-green"
+          id="apply-btn-{{ job.id }}"
+          onclick="applyJob({{ job.id }})">
+          Apply (Auto-Fill)
+        </button>
+        <a href="{{ job.url }}" target="_blank" class="btn-sm btn-gray" style="text-decoration:none">View Posting ↗</a>
         <button class="btn-sm btn-gray"
           hx-post="/skip/{{ job.id }}"
           hx-target="#job-{{ job.id }}"
@@ -118,6 +124,7 @@
         <span class="text-muted" style="align-self:center;font-size:0.78rem">Posted {{ job.date_posted[:10] }}</span>
         {% endif %}
       </div>
+      <div id="apply-log-{{ job.id }}" style="display:none;margin-top:12px;background:#111;border:1px solid #222;border-radius:6px;padding:12px;font-family:monospace;font-size:0.78rem;color:#4ade80;max-height:200px;overflow-y:auto;white-space:pre-wrap"></div>
     </div>
     {% endfor %}
   {% else %}
@@ -185,6 +192,48 @@ function switchTab(name, btn) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
   btn.classList.add('active');
+}
+
+function applyJob(jobId) {
+  const btn = document.getElementById('apply-btn-' + jobId);
+  const log = document.getElementById('apply-log-' + jobId);
+
+  btn.disabled = true;
+  btn.textContent = 'Opening browser…';
+  log.style.display = 'block';
+  log.textContent = '[apply] Opening Chrome — fill in any missing fields and click Submit.\n';
+
+  fetch('/apply/' + jobId, { method: 'POST' })
+    .then(resp => {
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      function read() {
+        reader.read().then(({ done, value }) => {
+          if (done) {
+            btn.textContent = '✓ Applied — check Applied tab';
+            btn.disabled = true;
+            return;
+          }
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              log.textContent += line.slice(6) + '\n';
+              log.scrollTop = log.scrollHeight;
+            }
+          }
+          read();
+        });
+      }
+      read();
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.textContent = 'Apply (Auto-Fill)';
+      log.textContent += '[error] ' + err + '\n';
+    });
 }
 
 function prepareJob(jobId) {

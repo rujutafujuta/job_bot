@@ -11,17 +11,21 @@ import pytest
 from src.tracking.db import (
     VALID_STATUSES,
     add_contact,
+    compute_followup_dates,
     count_by_status,
     get_all_jobs,
+    get_applied_jobs,
     get_job,
     get_job_by_id,
     get_jobs_by_status,
     get_jobs_by_statuses,
+    get_pending_outreach,
     get_priority_queue,
     get_followup_due,
     init_db,
     insert_job,
     mark_discarded,
+    mark_ghosted_jobs,
     update_job,
     update_job_by_id,
 )
@@ -292,6 +296,88 @@ class TestGetFollowupDue:
             "status": "scored", "follow_up_1_date": "2020-01-01",
         }, db)
         assert get_followup_due(db) == []
+
+
+class TestGetAppliedJobs:
+    def test_returns_applied_and_pipeline_statuses(self, db):
+        for status in ("applied", "phone_screen", "technical", "offer", "rejected", "ghosted"):
+            insert_job({"url": f"https://a.com/{status}", "title": "A", "company": "X", "status": status}, db)
+        insert_job({"url": "https://a.com/new", "title": "B", "company": "Y", "status": "new"}, db)
+        results = get_applied_jobs(db)
+        statuses = {r["status"] for r in results}
+        assert "new" not in statuses
+        assert "applied" in statuses
+        assert "phone_screen" in statuses
+        assert "ghosted" in statuses
+
+    def test_excludes_pre_apply_statuses(self, db):
+        for status in ("new", "scored", "ready", "skipped", "discarded"):
+            insert_job({"url": f"https://a.com/{status}", "title": "A", "company": "X", "status": status}, db)
+        assert get_applied_jobs(db) == []
+
+
+class TestGetPendingOutreach:
+    def test_returns_jobs_with_pending_outreach(self, db):
+        insert_job({
+            "url": "https://a.com/1", "title": "A", "company": "X",
+            "outreach_status": "pending_user_input",
+        }, db)
+        insert_job({
+            "url": "https://b.com/2", "title": "B", "company": "Y",
+            "outreach_status": "sent",
+        }, db)
+        results = get_pending_outreach(db)
+        assert len(results) == 1
+        assert results[0]["company"] == "X"
+
+    def test_returns_empty_when_none_pending(self, db):
+        insert_job({"url": "https://a.com/1", "title": "A", "company": "X"}, db)
+        assert get_pending_outreach(db) == []
+
+
+class TestComputeFollowupDates:
+    def test_returns_three_dates(self):
+        f1, f2, ghosted = compute_followup_dates("2026-04-18")
+        assert f1 == "2026-04-25"
+        assert f2 == "2026-05-02"
+        assert ghosted == "2026-05-18"
+
+    def test_handles_month_boundary(self):
+        f1, f2, ghosted = compute_followup_dates("2026-01-28")
+        assert f1 == "2026-02-04"
+        assert ghosted == "2026-02-27"
+
+
+class TestMarkGhostedJobs:
+    def test_marks_expired_applied_jobs_as_ghosted(self, db):
+        insert_job({
+            "url": "https://a.com/1", "title": "A", "company": "X",
+            "status": "applied", "ghosted_date": "2020-01-01",
+        }, db)
+        count = mark_ghosted_jobs(db)
+        assert count == 1
+        job = get_job("https://a.com/1", db)
+        assert job["status"] == "ghosted"
+
+    def test_does_not_mark_future_ghosted_date(self, db):
+        insert_job({
+            "url": "https://a.com/1", "title": "A", "company": "X",
+            "status": "applied", "ghosted_date": "2099-12-31",
+        }, db)
+        count = mark_ghosted_jobs(db)
+        assert count == 0
+        assert get_job("https://a.com/1", db)["status"] == "applied"
+
+    def test_does_not_mark_non_applied_jobs(self, db):
+        insert_job({
+            "url": "https://a.com/1", "title": "A", "company": "X",
+            "status": "phone_screen", "ghosted_date": "2020-01-01",
+        }, db)
+        mark_ghosted_jobs(db)
+        assert get_job("https://a.com/1", db)["status"] == "phone_screen"
+
+    def test_returns_zero_when_nothing_to_mark(self, db):
+        assert mark_ghosted_jobs(db) == 0
 
 
 class TestValidStatuses:

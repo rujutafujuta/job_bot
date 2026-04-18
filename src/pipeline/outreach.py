@@ -9,7 +9,7 @@ from pathlib import Path
 
 from src.scrapers.base import JobPosting
 from src.pipeline.contact_finder import Contact
-from src.utils import claude_client
+from src.utils.claude_runner import run_claude
 from src.utils.email_sender import send_email
 
 _OUTREACH_LOG = Path("data/outreach_log.json")
@@ -123,7 +123,7 @@ def send_cold_outreach(
     )
 
     print(f"[outreach] Generating email for {posting.company}")
-    raw_email = claude_client.ask(prompt, system=_SYSTEM, max_tokens=1024)
+    raw_email = run_claude(f"{_SYSTEM}\n\n{prompt}")
 
     subject, body = _parse_subject_body(raw_email)
     signature = outreach_cfg.get("email_signature", "")

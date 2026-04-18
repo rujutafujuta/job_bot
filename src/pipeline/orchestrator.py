@@ -15,8 +15,11 @@ import sys
 from datetime import date
 from pathlib import Path
 
+from src.pipeline.applicator import apply_to_job
+from src.pipeline.contact_finder import find_contact
 from src.pipeline.cover_letter import generate_cover_letter
 from src.pipeline.liveness import check_liveness
+from src.pipeline.outreach import send_cold_outreach
 from src.pipeline.pdf_generator import generate_pdf
 from src.pipeline.priority_scorer import compute_priority
 from src.pipeline.resume_tailor import tailor_resume
@@ -24,11 +27,14 @@ from src.pipeline.role_detector import generate_roles, needs_regeneration
 from src.pipeline.scraper import run_scrapers
 from src.pipeline.stage1_scorer import Stage1Result, route_job, score_job
 from src.pipeline.stage2_evaluator import evaluate_job
+from src.scrapers.base import JobPosting
 from src.tracking.db import (
+    compute_followup_dates,
     count_by_status,
     get_job_by_id,
     get_jobs_by_status,
     init_db,
+    mark_ghosted_jobs,
     update_job,
     update_job_by_id,
 )
@@ -226,6 +232,118 @@ def run_prepare_phase(
     )
 
 
+def run_apply_phase(
+    job_id: int,
+    db_path: Path = _DEFAULT_DB,
+    profile_path: Path = _DEFAULT_PROFILE,
+    dry_run: bool = False,
+) -> dict:
+    """
+    Apply to a single job:
+      1. Open browser (Playwright, headless=False) — user fills/submits
+      2. Find hiring manager contact
+      3. Generate and save cold outreach draft
+      4. Write applied_date + follow-up cadence + outreach_draft_path to DB
+      5. status → applied (or manual_pending if ATS unsupported)
+    """
+    job = get_job_by_id(job_id, db_path)
+    if not job:
+        raise ValueError(f"Job id={job_id} not found in database")
+
+    profile = load_profile(profile_path)
+
+    posting = JobPosting(
+        title=job["title"],
+        company=job["company"],
+        location=job.get("location", ""),
+        url=job["url"],
+        description=job.get("description", ""),
+        source=job.get("source", ""),
+        date_posted=job.get("date_posted", ""),
+        remote=bool(job.get("remote", 0)),
+    )
+
+    pdf_resume = Path(job.get("tailored_resume_path") or "")
+    cover_letter = Path(job.get("cover_letter_path") or "")
+
+    print(f"[orchestrator] Apply: {job['company']} / {job['title']}")
+
+    # Step 1 — open browser, auto-fill, user submits
+    apply_result = apply_to_job(
+        posting=posting,
+        profile=profile,
+        pdf_resume=pdf_resume if pdf_resume.exists() else Path("data/cv.md"),
+        cover_letter=cover_letter if cover_letter.exists() else None,
+        dry_run=dry_run,
+    )
+    print(f"[orchestrator] Apply result: submitted={apply_result['submitted']}")
+
+    # Step 2 — find contact
+    contact = find_contact(posting.company, posting.url)
+    print(f"[orchestrator] Contact found: {contact.found} — {contact.name or 'none'}")
+
+    # Step 3 — outreach draft
+    outreach_result = send_cold_outreach(
+        posting=posting,
+        contact=contact,
+        profile=profile,
+        pdf_resume=pdf_resume if pdf_resume.exists() else Path("data/cv.md"),
+        dry_run=dry_run,
+    )
+    print(f"[orchestrator] Outreach: {outreach_result['status']}")
+
+    # Step 4 — update DB
+    applied_date = date.today().isoformat()
+    f1, f2, ghosted = compute_followup_dates(applied_date)
+
+    new_status = "applied" if apply_result["submitted"] else "ready"
+    fields: dict = {
+        "follow_up_1_date": f1,
+        "follow_up_2_date": f2,
+        "ghosted_date": ghosted,
+        "outreach_status": outreach_result["status"],
+    }
+    if apply_result["submitted"]:
+        fields["applied_date"] = applied_date
+        fields["status"] = "applied"
+
+    draft_path = _get_latest_draft(posting.company)
+    if draft_path:
+        fields["outreach_draft_path"] = str(draft_path)
+
+    if not dry_run:
+        update_job_by_id(job_id, fields, db_path)
+
+    return {
+        "submitted": apply_result["submitted"],
+        "outreach_status": outreach_result["status"],
+        "applied_date": applied_date if apply_result["submitted"] else "",
+    }
+
+
+def _get_latest_draft(company: str) -> Path | None:
+    """Return the most recently created draft file for a company, if any."""
+    import re
+    pending_dir = Path("data/pending_outreach")
+    if not pending_dir.exists():
+        return None
+    slug = re.sub(r"[^\w]", "_", company.lower())
+    matches = sorted(pending_dir.glob(f"{slug}_*.txt"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return matches[0] if matches else None
+
+
+def run_followup_phase(db_path: Path = _DEFAULT_DB) -> int:
+    """
+    Auto-mark applied jobs as ghosted when their 30-day ghosted_date has passed.
+
+    Returns:
+        Number of jobs marked ghosted.
+    """
+    count = mark_ghosted_jobs(db_path)
+    print(f"[orchestrator] Follow-up check: {count} job(s) marked ghosted")
+    return count
+
+
 def _run_liveness(db_path: Path) -> None:
     print("\n[orchestrator] Phase 4: Liveness check")
     result = check_liveness(db_path)
@@ -249,7 +367,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Job Bot Pipeline")
     parser.add_argument(
         "--phase",
-        choices=["scrape", "prepare", "apply"],
+        choices=["scrape", "prepare", "apply", "followup"],
         default="scrape",
     )
     parser.add_argument("--job-id", type=int, help="Job ID (required for prepare/apply)")
@@ -283,7 +401,14 @@ def main() -> None:
     elif args.phase == "apply":
         if not args.job_id:
             parser.error("--job-id required for --phase apply")
-        print(f"[orchestrator] apply phase for job {args.job_id} — implemented in Slice 3")
+        run_apply_phase(
+            job_id=args.job_id,
+            db_path=Path(args.db),
+            profile_path=Path(args.profile),
+            dry_run=args.dry_run,
+        )
+    elif args.phase == "followup":
+        run_followup_phase(db_path=Path(args.db))
     else:
         parser.error(f"Unknown phase: {args.phase}")
 

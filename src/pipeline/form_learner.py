@@ -87,10 +87,11 @@ def lookup_field(label: str, profile: dict) -> str | None:
             if value is not None:
                 return value
 
-    # Check learned_answers
+    # Check learned_answers — keys are stored with underscores, normalize label to match
+    label_normalized = re.sub(r"[^\w]", "_", label_lower).strip("_")
     learned = profile.get("learned_answers", {})
     for key, val in learned.items():
-        if key in label_lower and val is not None:
+        if key == label_normalized and val is not None:
             return str(val)
 
     return None
