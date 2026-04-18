@@ -4,22 +4,25 @@
 {% block content %}
 <h1>Dashboard</h1>
 
-<!-- Stats row -->
-<div class="grid grid-4">
+<!-- Stats row — auto-refreshes every 30s via HTMX -->
+<div class="grid grid-4"
+     hx-get="/stats"
+     hx-trigger="every 30s"
+     hx-swap="outerHTML">
   <div class="card stat ready">
-    <div class="number">{{ ready }}</div>
+    <div class="number" id="stat-ready">{{ ready }}</div>
     <div class="label">Ready to apply</div>
   </div>
   <div class="card stat scored">
-    <div class="number">{{ scored }}</div>
+    <div class="number" id="stat-scored">{{ scored }}</div>
     <div class="label">Scored (70–94)</div>
   </div>
   <div class="card stat applied">
-    <div class="number">{{ applied }}</div>
+    <div class="number" id="stat-applied">{{ applied }}</div>
     <div class="label">Applied</div>
   </div>
   <div class="card stat total">
-    <div class="number">{{ total }}</div>
+    <div class="number" id="stat-total">{{ total }}</div>
     <div class="label">Total tracked</div>
   </div>
 </div>
@@ -49,7 +52,7 @@
 <!-- Priority queue -->
 {% if priority_queue %}
 <div class="card mt-24">
-  <h2>Priority Queue <a href="/review" style="font-size:0.8rem;font-weight:400;margin-left:8px">View all →</a></h2>
+  <h2>Priority Queue <a href="/review" style="font-size:0.8rem;font-weight:400;margin-left:8px">Review →</a></h2>
   <table>
     <thead>
       <tr><th>Priority</th><th>Company</th><th>Title</th><th>Score</th><th>Status</th></tr>
@@ -57,7 +60,10 @@
     <tbody>
       {% for job in priority_queue %}
       <tr>
-        <td style="color:#f59e0b;font-weight:600">{{ job.priority_score }}</td>
+        <td>
+          {% set label = priority_label(job.priority_score or 0) %}
+          <span style="font-weight:600;color:{% if label == 'High' %}#f87171{% elif label == 'Medium' %}#facc15{% else %}#6b7280{% endif %}">{{ label }}</span>
+        </td>
         <td>{{ job.company }}</td>
         <td><a href="{{ job.url }}" target="_blank">{{ job.title }}</a></td>
         <td>{{ job.stage2_score or job.stage1_score or '—' }}</td>
@@ -88,7 +94,28 @@
 <div class="card mt-24">
   <h2>Recent Activity</h2>
   {% if activity %}
-  <table>
+  <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+    <input
+      id="activity-search"
+      type="text"
+      placeholder="Filter by company or title…"
+      oninput="filterActivity()"
+      style="background:#1a1a1a;border:1px solid #333;color:#ccc;padding:6px 10px;border-radius:5px;font-size:0.85rem;width:220px"
+    >
+    <select
+      id="activity-status"
+      onchange="filterActivity()"
+      style="background:#1a1a1a;border:1px solid #333;color:#ccc;padding:6px 10px;border-radius:5px;font-size:0.85rem"
+    >
+      <option value="">All statuses</option>
+      <option>new</option><option>scored</option><option>ready</option>
+      <option>applied</option><option>skipped</option><option>discarded</option>
+      <option>phone_screen</option><option>technical</option><option>offer</option>
+      <option>negotiating</option><option>accepted</option><option>rejected</option>
+      <option>ghosted</option><option>withdrawn</option>
+    </select>
+  </div>
+  <table id="activity-table">
     <thead>
       <tr>
         <th>Company</th>
@@ -99,7 +126,7 @@
     </thead>
     <tbody>
       {% for item in activity %}
-      <tr>
+      <tr data-company="{{ item.company | lower }}" data-title="{{ item.title | lower }}" data-status="{{ item.status }}">
         <td>{{ item.company }}</td>
         <td>{{ item.title }}</td>
         <td>
@@ -118,6 +145,16 @@
 </div>
 
 <script>
+function filterActivity() {
+  const query = document.getElementById('activity-search').value.toLowerCase();
+  const status = document.getElementById('activity-status').value;
+  document.querySelectorAll('#activity-table tbody tr').forEach(row => {
+    const matchText = !query || row.dataset.company.includes(query) || row.dataset.title.includes(query);
+    const matchStatus = !status || row.dataset.status === status;
+    row.style.display = matchText && matchStatus ? '' : 'none';
+  });
+}
+
 function runPipeline() {
   const btn = document.getElementById('run-btn');
   const log = document.getElementById('log-output');

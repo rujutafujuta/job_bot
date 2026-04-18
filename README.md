@@ -295,3 +295,10 @@ This system is fully generic — no hardcoded assumptions about role type, indus
 3. Add your `data/cv.md`
 4. Run `python -m src.pipeline.orchestrator --phase scrape --dry-run`
 5. Open `http://localhost:8000` and review
+
+## References : 
+This project is a mix of my own job_bot logic and https://github.com/santifer/career-ops. I have added/ changed career-ops' logic to fit my use cases. Feel free to contribute, or change my code as per your needs. 
+
+## License
+
+MIT

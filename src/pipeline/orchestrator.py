@@ -38,8 +38,9 @@ from src.tracking.db import (
     update_job,
     update_job_by_id,
 )
-from src.tracking.deduplication import is_duplicate
+from src.tracking.deduplication import is_duplicate, is_fuzzy_duplicate
 from src.utils.config_loader import load_env, load_profile, validate_env
+from src.utils.scheduler import build_schtasks_command
 
 _DEFAULT_DB = Path("data/tracking.db")
 _DEFAULT_PROFILE = Path("config/user_profile.yaml")
@@ -96,7 +97,8 @@ def run_scrape_phase(
     ready_job_ids: list[int] = []
 
     for posting in postings:
-        if is_duplicate(posting.title, posting.company, db_path):
+        if is_duplicate(posting.title, posting.company, db_path) or \
+                is_fuzzy_duplicate(posting.title, posting.company, db_path):
             n_dup += 1
             continue
 
@@ -372,6 +374,12 @@ def main() -> None:
     )
     parser.add_argument("--job-id", type=int, help="Job ID (required for prepare/apply)")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--schedule",
+        type=int,
+        metavar="HOURS",
+        help="Register a Windows Task Scheduler job to run --phase scrape every N hours",
+    )
     parser.add_argument("--db", default=str(_DEFAULT_DB))
     parser.add_argument("--profile", default=str(_DEFAULT_PROFILE))
     parser.add_argument("--roles", default=str(_DEFAULT_ROLES))
@@ -380,6 +388,19 @@ def main() -> None:
 
     load_env()
     validate_env()
+
+    if args.schedule is not None:
+        import subprocess
+        cmd = build_schtasks_command(args.schedule)
+        print(f"[orchestrator] Registering scheduled task (every {args.schedule}h)...")
+        print(f"[orchestrator] {cmd}")
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        if result.returncode == 0:
+            print("[orchestrator] Task registered. Run 'schtasks /Query /TN \"JobBot Scrape\"' to verify.")
+        else:
+            print(f"[orchestrator] schtasks failed: {result.stderr.strip()}")
+            sys.exit(1)
+        sys.exit(0)
 
     if args.phase == "scrape":
         run_scrape_phase(

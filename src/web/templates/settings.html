@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Settings — Job Bot{% endblock %}
+
+{% block content %}
+<style>
+  .settings-section { margin-bottom: 32px; }
+  .settings-section h2 { margin-bottom: 12px; }
+  textarea.yaml-editor {
+    width: 100%;
+    min-height: 320px;
+    background: #111;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    color: #ccc;
+    font-family: 'Courier New', monospace;
+    font-size: 0.82rem;
+    line-height: 1.6;
+    padding: 14px;
+    resize: vertical;
+    box-sizing: border-box;
+  }
+  textarea.yaml-editor:focus { outline: none; border-color: #3b82f6; }
+  .save-status { margin-top: 8px; min-height: 1.4em; font-size: 0.85rem; }
+</style>
+
+<h1>Settings</h1>
+
+<div class="settings-section card mt-24">
+  <h2>User Profile <span style="font-size:0.8rem;color:#555;font-weight:400">config/user_profile.yaml</span></h2>
+  <form
+    hx-post="/settings/profile"
+    hx-target="#profile-status"
+    hx-swap="innerHTML"
+  >
+    <textarea class="yaml-editor" name="content">{{ profile_text }}</textarea>
+    <div class="save-status" id="profile-status"></div>
+    <button type="submit" class="btn btn-primary" style="margin-top:8px">Save Profile</button>
+  </form>
+</div>
+
+<div class="settings-section card mt-24">
+  <h2>Target Roles <span style="font-size:0.8rem;color:#555;font-weight:400">config/target_roles.yaml</span></h2>
+  <form
+    hx-post="/settings/roles"
+    hx-target="#roles-status"
+    hx-swap="innerHTML"
+  >
+    <textarea class="yaml-editor" name="content">{{ roles_text }}</textarea>
+    <div class="save-status" id="roles-status"></div>
+    <button type="submit" class="btn btn-primary" style="margin-top:8px">Save Roles</button>
+  </form>
+</div>
+{% endblock %}

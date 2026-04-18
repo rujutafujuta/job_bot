@@ -99,3 +99,12 @@ def compute_priority(job: dict) -> int:
             score += 7
 
     return max(0, score)
+
+
+def priority_label(score: int) -> str:
+    """Convert numeric priority score to a human-readable label."""
+    if score >= 40:
+        return "High"
+    if score >= 20:
+        return "Medium"
+    return "Low"

@@ -13,8 +13,40 @@
     No applications yet. Apply to jobs from the <a href="/review">Review</a> page.
   </div>
 {% else %}
+  <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
+    <input
+      id="applied-search"
+      type="text"
+      placeholder="Filter by company or role…"
+      oninput="filterApplied()"
+      style="background:#1a1a1a;border:1px solid #333;color:#ccc;padding:6px 10px;border-radius:5px;font-size:0.85rem;width:220px"
+    >
+    <select
+      id="applied-status"
+      onchange="filterApplied()"
+      style="background:#1a1a1a;border:1px solid #333;color:#ccc;padding:6px 10px;border-radius:5px;font-size:0.85rem"
+    >
+      <option value="">All statuses</option>
+      <option>applied</option><option>phone_screen</option><option>technical</option>
+      <option>offer</option><option>negotiating</option><option>accepted</option>
+      <option>withdrawn</option><option>rejected</option><option>ghosted</option>
+    </select>
+    <input
+      id="applied-date-from"
+      type="date"
+      oninput="filterApplied()"
+      style="background:#1a1a1a;border:1px solid #333;color:#ccc;padding:6px 10px;border-radius:5px;font-size:0.85rem"
+    >
+    <span style="color:#555;font-size:0.85rem">to</span>
+    <input
+      id="applied-date-to"
+      type="date"
+      oninput="filterApplied()"
+      style="background:#1a1a1a;border:1px solid #333;color:#ccc;padding:6px 10px;border-radius:5px;font-size:0.85rem"
+    >
+  </div>
   <div class="card" style="overflow:auto;">
-    <table>
+    <table id="applied-table">
       <thead>
         <tr>
           <th>Company</th>
@@ -28,7 +60,11 @@
       </thead>
       <tbody>
         {% for job in jobs %}
-        <tr id="job-row-{{ job.id }}">
+        <tr id="job-row-{{ job.id }}"
+            data-company="{{ job.company | lower }}"
+            data-title="{{ job.title | lower }}"
+            data-status="{{ job.status }}"
+            data-applied="{{ job.applied_date or '' }}">
           <td>
             <a href="{{ job.url }}" target="_blank" rel="noopener" style="font-weight:500;">{{ job.company }}</a>
           </td>
@@ -66,5 +102,23 @@
       </tbody>
     </table>
   </div>
+
+<script>
+function filterApplied() {
+  const query = document.getElementById('applied-search').value.toLowerCase();
+  const status = document.getElementById('applied-status').value;
+  const dateFrom = document.getElementById('applied-date-from').value;
+  const dateTo = document.getElementById('applied-date-to').value;
+
+  document.querySelectorAll('#applied-table tbody tr').forEach(row => {
+    const matchText = !query || row.dataset.company.includes(query) || row.dataset.title.includes(query);
+    const matchStatus = !status || row.dataset.status === status;
+    const applied = row.dataset.applied || '';
+    const matchFrom = !dateFrom || applied >= dateFrom;
+    const matchTo = !dateTo || applied <= dateTo;
+    row.style.display = matchText && matchStatus && matchFrom && matchTo ? '' : 'none';
+  });
+}
+</script>
 {% endif %}
 {% endblock %}

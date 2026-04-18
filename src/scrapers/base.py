@@ -8,6 +8,9 @@ from dataclasses import dataclass
 
 import requests
 
+_RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+_MAX_RETRIES = 3
+
 
 @dataclass
 class JobPosting:
@@ -38,13 +41,23 @@ class BaseScraper(ABC):
         )
 
     def _get(self, url: str, **kwargs) -> requests.Response:
-        """Rate-limited GET with user-agent header."""
+        """Rate-limited GET with user-agent header and exponential backoff on transient errors."""
         if self._delay > 0:
             time.sleep(self._delay)
         headers = {"User-Agent": self._user_agent, **kwargs.pop("headers", {})}
-        response = requests.get(url, headers=headers, timeout=15, **kwargs)
-        response.raise_for_status()
-        return response
+        last_exc: Exception | None = None
+        for attempt in range(_MAX_RETRIES + 1):
+            response = requests.get(url, headers=headers, timeout=15, **kwargs)
+            try:
+                response.raise_for_status()
+                return response
+            except requests.HTTPError as exc:
+                status = response.status_code
+                if status not in _RETRYABLE_STATUS_CODES or attempt == _MAX_RETRIES:
+                    raise
+                last_exc = exc
+                time.sleep(2 ** attempt)
+        raise last_exc  # type: ignore[misc]
 
     @abstractmethod
     def scrape(self, queries: list[str]) -> list[JobPosting]:

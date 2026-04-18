@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.pipeline.priority_scorer import compute_priority
+from src.pipeline.priority_scorer import compute_priority, priority_label
 
 
 def _job(**kwargs) -> dict:
@@ -89,3 +89,23 @@ class TestComputePriority:
             date_posted="2020-01-01",
         ))
         assert score >= 0
+
+
+class TestPriorityLabel:
+    def test_high_at_threshold(self):
+        assert priority_label(40) == "High"
+
+    def test_high_above_threshold(self):
+        assert priority_label(100) == "High"
+
+    def test_medium_at_lower_threshold(self):
+        assert priority_label(20) == "Medium"
+
+    def test_medium_at_upper_threshold(self):
+        assert priority_label(39) == "Medium"
+
+    def test_low_at_threshold(self):
+        assert priority_label(19) == "Low"
+
+    def test_low_at_zero(self):
+        assert priority_label(0) == "Low"

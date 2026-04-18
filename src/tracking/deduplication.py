@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import re
 from pathlib import Path
 
-from src.tracking.db import _DEFAULT_DB, is_discarded, is_seen, insert_job, mark_discarded
+from src.tracking.db import _DEFAULT_DB, get_jobs_by_statuses, is_discarded, is_seen, insert_job, mark_discarded
+
+_FUZZY_THRESHOLD = 0.85
+_ALL_ACTIVE_STATUSES = [
+    "new", "scored", "ready", "applied", "skipped",
+    "phone_screen", "technical", "offer", "negotiating",
+    "accepted", "rejected", "ghosted", "withdrawn",
+]
 
 
 def normalize(title: str, company: str) -> str:
@@ -27,6 +35,26 @@ def normalize(title: str, company: str) -> str:
 def compute_hash(title: str, company: str) -> str:
     """Return SHA-256 hex digest of normalize(title, company)."""
     return hashlib.sha256(normalize(title, company).encode("utf-8")).hexdigest()
+
+
+def is_fuzzy_duplicate(title: str, company: str, db_path: Path = _DEFAULT_DB) -> bool:
+    """
+    Return True if a sufficiently similar title+company exists in the DB.
+
+    Uses SequenceMatcher on normalized(title + company) strings. Catches
+    minor variations like "Engineer II" vs "Engineer" at the same company.
+    Falls back to exact hash check for discarded entries.
+    """
+    if is_duplicate(title, company, db_path):
+        return True
+    candidate = normalize(title, company)
+    existing_jobs = get_jobs_by_statuses(_ALL_ACTIVE_STATUSES, db_path)
+    for job in existing_jobs:
+        existing = normalize(job.get("title", ""), job.get("company", ""))
+        ratio = difflib.SequenceMatcher(None, candidate, existing).ratio()
+        if ratio >= _FUZZY_THRESHOLD:
+            return True
+    return False
 
 
 def is_duplicate(title: str, company: str, db_path: Path = _DEFAULT_DB) -> bool:

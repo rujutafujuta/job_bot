@@ -8,11 +8,13 @@ import io
 import sys
 from pathlib import Path
 
+import yaml
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sse_starlette.sse import EventSourceResponse
 
+from src.pipeline.priority_scorer import priority_label
 from src.tracking.db import (
     compute_followup_dates,
     count_by_status,
@@ -29,6 +31,8 @@ from src.tracking.db import (
 
 _DB_PATH = Path("data/tracking.db")
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
+_PROFILE_PATH = Path("config/user_profile.yaml")
+_ROLES_PATH = Path("config/target_roles.yaml")
 
 app = FastAPI(title="Job Bot")
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -43,7 +47,7 @@ async def startup() -> None:
 async def dashboard(request: Request) -> HTMLResponse:
     counts = count_by_status(_DB_PATH)
     activity = get_recent_activity(limit=10, db_path=_DB_PATH)
-    priority_queue = get_priority_queue(limit=5, db_path=_DB_PATH)
+    priority_queue = get_priority_queue(db_path=_DB_PATH)
     followups_due = get_followup_due(db_path=_DB_PATH)
     return templates.TemplateResponse(
         request=request,
@@ -53,6 +57,7 @@ async def dashboard(request: Request) -> HTMLResponse:
             "activity": activity,
             "priority_queue": priority_queue,
             "followups_due": followups_due,
+            "priority_label": priority_label,
             "total": sum(counts.values()),
             "ready": counts.get("ready", 0),
             "scored": counts.get("scored", 0),
@@ -65,6 +70,29 @@ async def dashboard(request: Request) -> HTMLResponse:
 async def health() -> JSONResponse:
     counts = count_by_status(_DB_PATH)
     return JSONResponse({"status": "ok", "jobs": sum(counts.values()), "counts": counts})
+
+
+@app.get("/stats", response_class=HTMLResponse)
+async def stats_fragment(request: Request) -> HTMLResponse:
+    """HTMX fragment — returns the stats grid div for auto-refresh."""
+    counts = count_by_status(_DB_PATH)
+    total = sum(counts.values())
+    ready = counts.get("ready", 0)
+    scored = counts.get("scored", 0)
+    applied = counts.get("applied", 0)
+    html = (
+        f'<div class="grid grid-4" hx-get="/stats" hx-trigger="every 30s" hx-swap="outerHTML">'
+        f'<div class="card stat ready"><div class="number" id="stat-ready">{ready}</div>'
+        f'<div class="label">Ready to apply</div></div>'
+        f'<div class="card stat scored"><div class="number" id="stat-scored">{scored}</div>'
+        f'<div class="label">Scored (70–94)</div></div>'
+        f'<div class="card stat applied"><div class="number" id="stat-applied">{applied}</div>'
+        f'<div class="label">Applied</div></div>'
+        f'<div class="card stat total"><div class="number" id="stat-total">{total}</div>'
+        f'<div class="label">Total tracked</div></div>'
+        f'</div>'
+    )
+    return HTMLResponse(html)
 
 
 @app.get("/review", response_class=HTMLResponse)
@@ -82,7 +110,7 @@ async def review(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
         request=request,
         name="review.html",
-        context={"ready_jobs": ready_jobs, "scored_jobs": scored_jobs},
+        context={"ready_jobs": ready_jobs, "scored_jobs": scored_jobs, "priority_label": priority_label},
     )
 
 
@@ -267,6 +295,42 @@ async def apply_job(job_id: int, request: Request) -> EventSourceResponse:
         yield {"data": f"[done] job_id={job_id}"}
 
     return EventSourceResponse(_stream())
+
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request) -> HTMLResponse:
+    """Render the settings page with current YAML content for editing."""
+    profile_text = _PROFILE_PATH.read_text(encoding="utf-8") if _PROFILE_PATH.exists() else ""
+    roles_text = _ROLES_PATH.read_text(encoding="utf-8") if _ROLES_PATH.exists() else ""
+    return templates.TemplateResponse(
+        request=request,
+        name="settings.html",
+        context={"profile_text": profile_text, "roles_text": roles_text},
+    )
+
+
+@app.post("/settings/profile", response_class=HTMLResponse)
+async def save_profile(request: Request, content: str = Form(...)) -> HTMLResponse:
+    """Save updated user_profile.yaml. Returns 400 on invalid YAML."""
+    try:
+        yaml.safe_load(content)
+    except yaml.YAMLError as exc:
+        return HTMLResponse(f"Invalid YAML: {exc}", status_code=400)
+    _PROFILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _PROFILE_PATH.write_text(content, encoding="utf-8")
+    return HTMLResponse('<p class="text-muted" style="color:#4ade80">Profile saved.</p>')
+
+
+@app.post("/settings/roles", response_class=HTMLResponse)
+async def save_roles(request: Request, content: str = Form(...)) -> HTMLResponse:
+    """Save updated target_roles.yaml. Returns 400 on invalid YAML."""
+    try:
+        yaml.safe_load(content)
+    except yaml.YAMLError as exc:
+        return HTMLResponse(f"Invalid YAML: {exc}", status_code=400)
+    _ROLES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _ROLES_PATH.write_text(content, encoding="utf-8")
+    return HTMLResponse('<p class="text-muted" style="color:#4ade80">Roles saved.</p>')
 
 
 @app.post("/run")

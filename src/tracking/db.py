@@ -310,17 +310,15 @@ def get_jobs_by_statuses(statuses: list[str], db_path: Path = _DEFAULT_DB) -> li
     return [_row_to_dict(r) for r in rows]
 
 
-def get_priority_queue(limit: int = 5, db_path: Path = _DEFAULT_DB) -> list[dict]:
-    """Return top N jobs from scored+ready sorted by priority_score descending."""
+def get_priority_queue(db_path: Path = _DEFAULT_DB) -> list[dict]:
+    """Return all scored+ready jobs sorted by priority_score descending."""
     with _connect(db_path) as conn:
         rows = conn.execute(
             """
             SELECT * FROM jobs
             WHERE status IN ('scored', 'ready')
             ORDER BY priority_score DESC, created_at DESC
-            LIMIT ?
             """,
-            (limit,),
         ).fetchall()
     return [_row_to_dict(r) for r in rows]
 

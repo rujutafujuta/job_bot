@@ -66,7 +66,8 @@
             <span class="score-badge score-mid">Stage 1: {{ job.stage1_score }}/100</span>
             {% endif %}
             {% if job.priority_score %}
-            <span class="priority-label">Priority: {{ job.priority_score }}</span>
+            {% set label = priority_label(job.priority_score) %}
+            <span class="priority-label" style="color:{% if label == 'High' %}#f87171{% elif label == 'Medium' %}#facc15{% else %}#6b7280{% endif %}">{{ label }}</span>
             {% endif %}
             {% if job.referral_contact %}
             <span class="badge referral-badge">🔗 {{ job.referral_contact }}</span>
@@ -147,7 +148,8 @@
           <div class="job-meta">
             <span class="score-badge score-mid">Stage 1: {{ job.stage1_score }}/100</span>
             {% if job.priority_score %}
-            <span class="priority-label">Priority: {{ job.priority_score }}</span>
+            {% set label = priority_label(job.priority_score) %}
+            <span class="priority-label" style="color:{% if label == 'High' %}#f87171{% elif label == 'Medium' %}#facc15{% else %}#6b7280{% endif %}">{{ label }}</span>
             {% endif %}
           </div>
           {% if job.stage1_reasoning %}

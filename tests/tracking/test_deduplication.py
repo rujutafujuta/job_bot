@@ -8,6 +8,7 @@ from src.tracking.db import init_db, insert_job, mark_discarded
 from src.tracking.deduplication import (
     compute_hash,
     is_duplicate,
+    is_fuzzy_duplicate,
     normalize,
     record_seen,
 )
@@ -82,6 +83,32 @@ class TestIsDuplicate:
         h = compute_hash("swe", "google")
         mark_discarded(h, "swe", "google", "test", db)
         assert is_duplicate("SWE", "GOOGLE", db) is True
+
+
+class TestIsFuzzyDuplicate:
+    def test_returns_false_for_empty_db(self, db):
+        assert is_fuzzy_duplicate("Software Engineer", "Google", db) is False
+
+    def test_exact_match_returns_true(self, db):
+        insert_job({"url": "https://g.com/1", "title": "Software Engineer", "company": "Google", "status": "scored"}, db)
+        assert is_fuzzy_duplicate("Software Engineer", "Google", db) is True
+
+    def test_minor_title_variation_returns_true(self, db):
+        insert_job({"url": "https://g.com/1", "title": "Software Engineer", "company": "Google", "status": "scored"}, db)
+        assert is_fuzzy_duplicate("Software Engineer II", "Google", db) is True
+
+    def test_unrelated_job_returns_false(self, db):
+        insert_job({"url": "https://g.com/1", "title": "Software Engineer", "company": "Google", "status": "scored"}, db)
+        assert is_fuzzy_duplicate("Accountant", "BankCorp", db) is False
+
+    def test_same_title_different_company_returns_false(self, db):
+        insert_job({"url": "https://g.com/1", "title": "Software Engineer", "company": "Google", "status": "scored"}, db)
+        assert is_fuzzy_duplicate("Software Engineer", "Microsoft", db) is False
+
+    def test_checks_discarded_hashes_table(self, db):
+        h = compute_hash("ML Engineer", "Anthropic")
+        mark_discarded(h, "ML Engineer", "Anthropic", "test", db)
+        assert is_fuzzy_duplicate("ML Engineer", "Anthropic", db) is True
 
 
 class TestRecordSeen:

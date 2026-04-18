@@ -259,18 +259,19 @@ class TestGetJobsByStatuses:
 
 
 class TestGetPriorityQueue:
-    def test_returns_top_n_by_priority_score(self, db):
+    def test_returns_all_sorted_by_priority_score(self, db):
         insert_job({"url": "https://a.com/1", "title": "A", "company": "X", "status": "ready", "priority_score": 10}, db)
         insert_job({"url": "https://b.com/2", "title": "B", "company": "Y", "status": "ready", "priority_score": 50}, db)
         insert_job({"url": "https://c.com/3", "title": "C", "company": "Z", "status": "scored", "priority_score": 30}, db)
-        results = get_priority_queue(limit=2, db_path=db)
+        results = get_priority_queue(db_path=db)
         assert results[0]["title"] == "B"
         assert results[1]["title"] == "C"
+        assert results[2]["title"] == "A"
 
     def test_excludes_non_actionable_statuses(self, db):
         insert_job({"url": "https://a.com/1", "title": "A", "company": "X", "status": "applied", "priority_score": 99}, db)
         insert_job({"url": "https://b.com/2", "title": "B", "company": "Y", "status": "ready", "priority_score": 1}, db)
-        results = get_priority_queue(limit=5, db_path=db)
+        results = get_priority_queue(db_path=db)
         assert all(r["status"] in ("scored", "ready") for r in results)
 
 
