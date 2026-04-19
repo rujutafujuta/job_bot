@@ -15,6 +15,7 @@ from src.scrapers.remoteok import RemoteOKScraper
 from src.scrapers.remotive import RemotiveScraper
 from src.scrapers.simplify import SimplifyJobsScraper
 from src.tracking.deduplication import is_duplicate
+from src.utils.config_loader import load_settings
 
 _DEFAULT_ROLES_PATH = Path("config/target_roles.yaml")
 
@@ -80,11 +81,16 @@ def run_scrapers(
 
     print(f"[scraper] {len(queries)} search queries loaded from {roles_path}")
     overrides = scraper_overrides or {}
+    settings = load_settings()
+    scraper_toggles: dict = settings.get("scrapers", {})
     new_jobs: list[JobPosting] = []
     total_seen = 0
 
     for scraper_cls in _ALL_SCRAPERS:
         source = scraper_cls.source_name
+        if not scraper_toggles.get(source, True):
+            print(f"[scraper] {source}: disabled in settings — skipping")
+            continue
         cfg = overrides.get(source, {})
         scraper = scraper_cls(config=cfg)
 

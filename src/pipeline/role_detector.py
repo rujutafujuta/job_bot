@@ -59,7 +59,7 @@ def generate_roles(
     cv_path: Path,
     roles_path: Path,
     dry_run: bool = False,
-    force: bool = True,
+    force: bool = False,
 ) -> dict:
     """
     Generate target_roles.yaml from cv.md using Claude Code CLI.

@@ -9,15 +9,23 @@ import sys
 from pathlib import Path
 
 import yaml
-from fastapi import FastAPI, Form, Request
+import tempfile
+
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sse_starlette.sse import EventSourceResponse
 
+import threading
+
+from src.contacts.importer import import_linkedin_csv
+from src.pipeline.integrity_checker import get_latest_integrity_result
 from src.pipeline.priority_scorer import priority_label
 from src.tracking.db import (
+    add_contact,
     compute_followup_dates,
     count_by_status,
+    count_contacts,
     get_applied_jobs,
     get_followup_due,
     get_job_by_id,
@@ -26,16 +34,21 @@ from src.tracking.db import (
     get_priority_queue,
     get_recent_activity,
     init_db,
+    list_contacts,
     update_job_by_id,
 )
+from src.utils.config_loader import load_settings, save_settings
 
 _DB_PATH = Path("data/tracking.db")
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 _PROFILE_PATH = Path("config/user_profile.yaml")
 _ROLES_PATH = Path("config/target_roles.yaml")
+_CV_PATH = Path("data/cv.md")
 
 app = FastAPI(title="Job Bot")
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+
+_pipeline_lock = threading.Lock()
 
 
 @app.on_event("startup")
@@ -49,6 +62,7 @@ async def dashboard(request: Request) -> HTMLResponse:
     activity = get_recent_activity(limit=10, db_path=_DB_PATH)
     priority_queue = get_priority_queue(db_path=_DB_PATH)
     followups_due = get_followup_due(db_path=_DB_PATH)
+    integrity = get_latest_integrity_result()
     return templates.TemplateResponse(
         request=request,
         name="dashboard.html",
@@ -62,6 +76,7 @@ async def dashboard(request: Request) -> HTMLResponse:
             "ready": counts.get("ready", 0),
             "scored": counts.get("scored", 0),
             "applied": counts.get("applied", 0),
+            "integrity": integrity,
         },
     )
 
@@ -317,6 +332,8 @@ async def save_profile(request: Request, content: str = Form(...)) -> HTMLRespon
     except yaml.YAMLError as exc:
         return HTMLResponse(f"Invalid YAML: {exc}", status_code=400)
     _PROFILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if _PROFILE_PATH.exists():
+        _PROFILE_PATH.with_suffix(".yaml.bak").write_bytes(_PROFILE_PATH.read_bytes())
     _PROFILE_PATH.write_text(content, encoding="utf-8")
     return HTMLResponse('<p class="text-muted" style="color:#4ade80">Profile saved.</p>')
 
@@ -329,13 +346,117 @@ async def save_roles(request: Request, content: str = Form(...)) -> HTMLResponse
     except yaml.YAMLError as exc:
         return HTMLResponse(f"Invalid YAML: {exc}", status_code=400)
     _ROLES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if _ROLES_PATH.exists():
+        _ROLES_PATH.with_suffix(".yaml.bak").write_bytes(_ROLES_PATH.read_bytes())
     _ROLES_PATH.write_text(content, encoding="utf-8")
     return HTMLResponse('<p class="text-muted" style="color:#4ade80">Roles saved.</p>')
 
 
-@app.post("/run")
-async def run_pipeline(request: Request) -> EventSourceResponse:
-    """Trigger --phase scrape as a background subprocess and stream output via SSE."""
+@app.get("/settings/contacts", response_class=HTMLResponse)
+async def contacts_fragment(request: Request) -> HTMLResponse:
+    contacts = list_contacts(_DB_PATH)
+    total = count_contacts(_DB_PATH)
+    rows = "".join(
+        f"<tr><td>{c['name']}</td><td>{c['company']}</td><td>{c.get('title','')}</td>"
+        f"<td style='color:#666;font-size:0.8rem'>{c.get('source','manual')}</td></tr>"
+        for c in contacts
+    )
+    table = (
+        f"<p style='color:#888;font-size:0.85rem'>{total} contact(s) loaded.</p>"
+        + (
+            f"<table><thead><tr><th>Name</th><th>Company</th><th>Title</th><th>Source</th></tr></thead>"
+            f"<tbody>{rows}</tbody></table>"
+            if contacts
+            else ""
+        )
+    )
+    return HTMLResponse(table)
+
+
+@app.post("/settings/contacts/import", response_class=HTMLResponse)
+async def import_contacts(csv_file: UploadFile = File(...)) -> HTMLResponse:
+    """Import LinkedIn Connections.csv and upsert into contacts table."""
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
+            tmp.write(await csv_file.read())
+            tmp_path = Path(tmp.name)
+        count = import_linkedin_csv(tmp_path, _DB_PATH)
+        tmp_path.unlink(missing_ok=True)
+        total = count_contacts(_DB_PATH)
+        return HTMLResponse(
+            f'<p style="color:#4ade80">Imported {count} contact(s). Total: {total}.</p>',
+            status_code=200,
+        )
+    except Exception as exc:
+        return HTMLResponse(f'<p style="color:#f87171">Import failed: {exc}</p>', status_code=400)
+
+
+@app.post("/settings/contacts/add", response_class=HTMLResponse)
+async def add_contact_manual(
+    name: str = Form(...),
+    company: str = Form(...),
+    title: str = Form(""),
+) -> HTMLResponse:
+    """Manually add a single contact."""
+    if not name.strip() or not company.strip():
+        return HTMLResponse('<p style="color:#f87171">Name and company are required.</p>', status_code=400)
+    add_contact(name=name.strip(), company=company.strip(), title=title.strip(), source="manual", db_path=_DB_PATH)
+    total = count_contacts(_DB_PATH)
+    return HTMLResponse(
+        f'<p style="color:#4ade80">Contact added. Total: {total}.</p>',
+        status_code=200,
+    )
+
+
+@app.post("/settings/rejection-analysis")
+async def rejection_analysis(request: Request) -> EventSourceResponse:
+    """Run rejection analysis and stream output."""
+    from src.pipeline.rejection_analyzer import run_rejection_analysis
+
+    async def _stream():
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, "-c",
+                (
+                    "from src.pipeline.rejection_analyzer import run_rejection_analysis; "
+                    "p = run_rejection_analysis(); print(f'[done] Report written to {p}')"
+                ),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            async for line in proc.stdout:
+                text = line.decode("utf-8", errors="replace").rstrip()
+                if text:
+                    yield {"data": text}
+            await proc.wait()
+        except Exception as exc:
+            yield {"data": f"[error] {exc}"}
+
+    return EventSourceResponse(_stream())
+
+
+@app.get("/settings/regenerate-roles")
+async def regenerate_roles_status(request: Request) -> HTMLResponse:
+    """Return CV-changed banner if cv.md is newer than target_roles.yaml."""
+    cv_newer = _CV_PATH.exists() and (
+        not _ROLES_PATH.exists()
+        or _CV_PATH.stat().st_mtime > _ROLES_PATH.stat().st_mtime
+    )
+    if cv_newer:
+        return HTMLResponse(
+            '<div id="cv-banner" style="background:#422006;border:1px solid #78350f;'
+            'border-radius:6px;padding:12px 16px;margin-bottom:16px;color:#fbbf24">'
+            '⚠ cv.md was updated after target_roles.yaml — roles may be stale. '
+            '<button hx-post="/settings/regenerate-roles" hx-target="#cv-banner" '
+            'hx-swap="outerHTML" class="btn btn-primary" style="margin-left:12px;font-size:0.82rem">'
+            'Regenerate Roles</button></div>'
+        )
+    return HTMLResponse('<div id="cv-banner"></div>')
+
+
+@app.post("/settings/regenerate-roles")
+async def regenerate_roles(request: Request) -> EventSourceResponse:
+    """Trigger --phase roles regeneration and stream output."""
 
     async def _stream():
         proc = await asyncio.create_subprocess_exec(
@@ -349,7 +470,68 @@ async def run_pipeline(request: Request) -> EventSourceResponse:
             if text:
                 yield {"data": text}
         await proc.wait()
-        code = proc.returncode
-        yield {"data": f"[done] Exit code: {code}"}
+        yield {"data": "[done] Roles regenerated."}
+
+    return EventSourceResponse(_stream())
+
+
+@app.get("/settings/scraper-toggles", response_class=HTMLResponse)
+async def scraper_toggles_fragment(request: Request) -> HTMLResponse:
+    """Return scraper toggle checkboxes as an HTMX fragment."""
+    settings = load_settings()
+    toggles = settings.get("scrapers", {})
+    scraper_names = ["apify", "himalayas", "remotive", "remoteok", "simplify", "adzuna", "jobicy"]
+    checkboxes = "".join(
+        f'<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer">'
+        f'<input type="checkbox" name="scrapers[]" value="{name}" '
+        f'{"checked" if toggles.get(name, True) else ""}> {name}</label>'
+        for name in scraper_names
+    )
+    return HTMLResponse(
+        f'<form hx-post="/settings/scraper-toggles" hx-target="#scraper-status" hx-swap="innerHTML">'
+        f'{checkboxes}'
+        f'<button type="submit" class="btn btn-primary" style="margin-top:8px">Save Toggles</button>'
+        f'</form>'
+        f'<div id="scraper-status" style="min-height:1.4em;margin-top:8px;font-size:0.85rem"></div>'
+    )
+
+
+@app.post("/settings/scraper-toggles", response_class=HTMLResponse)
+async def save_scraper_toggles(request: Request) -> HTMLResponse:
+    """Save scraper enable/disable toggles to config/settings.yaml."""
+    form = await request.form()
+    enabled = set(form.getlist("scrapers[]"))
+    scraper_names = ["apify", "himalayas", "remotive", "remoteok", "simplify", "adzuna", "jobicy"]
+    settings = load_settings()
+    settings["scrapers"] = {name: (name in enabled) for name in scraper_names}
+    save_settings(settings)
+    return HTMLResponse('<p style="color:#4ade80">Scraper settings saved.</p>')
+
+
+@app.post("/run")
+async def run_pipeline(request: Request) -> EventSourceResponse:
+    """Trigger --phase scrape as a background subprocess and stream output via SSE."""
+
+    async def _stream():
+        if not _pipeline_lock.acquire(blocking=False):
+            yield {"data": "[error] Pipeline already running — wait for it to finish"}
+            return
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, "-m", "src.pipeline.orchestrator",
+                "--phase", "scrape",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            async for line in proc.stdout:
+                text = line.decode("utf-8", errors="replace").rstrip()
+                if text:
+                    yield {"data": text}
+            await proc.wait()
+            code = proc.returncode
+            yield {"data": f"[done] Exit code: {code}"}
+        finally:
+            _pipeline_lock.release()
 
     return EventSourceResponse(_stream())

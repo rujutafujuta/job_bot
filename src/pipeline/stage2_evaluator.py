@@ -148,6 +148,7 @@ def evaluate_job(
     cv_path: Path = _CV_PATH,
     profile: dict | None = None,
     reports_dir: Path = _REPORTS_DIR,
+    referral_contacts: list[dict] | None = None,
 ) -> Stage2Result:
     """
     Run Stage 2 deep evaluation for a single job.
@@ -161,6 +162,18 @@ def evaluate_job(
     target = profile.get("target", {})
     skills = profile.get("skills", {})
     ctx = profile.get("cover_letter_context", {})
+
+    referral_note = ""
+    if referral_contacts:
+        lines = [
+            f"  - {c['name']} ({c.get('title', 'unknown title')}) — source: {c.get('source', 'manual')}"
+            for c in referral_contacts
+        ]
+        referral_note = (
+            "\n=== KNOWN CONTACTS AT THIS COMPANY ===\n"
+            + "\n".join(lines)
+            + "\nFlag these in Block B.\n"
+        )
 
     prompt = _PROMPT_TEMPLATE.format(
         name=personal.get("full_name", "Candidate"),
@@ -177,7 +190,7 @@ def evaluate_job(
         stage1_score=job.get("stage1_score", 0),
         stage1_reasoning=job.get("stage1_reasoning", ""),
         description=(job.get("description", "") or "")[:5000],
-    )
+    ) + referral_note
 
     report_path = _build_report_path(
         job.get("company", "unknown"),

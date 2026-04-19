@@ -16,14 +16,25 @@ from src.tracking.db import _DEFAULT_DB, get_jobs_by_statuses, update_job
 
 _ACTIVE_STATUSES = ["scored", "ready"]
 _DEAD_CODES = {404, 410}
-_TIMEOUT = 10
+_FALLBACK_CODES = {403, 405, 501}
+_TIMEOUT = 20
 
 
 def _is_dead(url: str) -> bool:
-    """Return True if the URL is unreachable or returns a dead-link status code."""
+    """Return True if the URL is unreachable or returns a dead-link status code.
+
+    Falls back from HEAD to GET when the server blocks HEAD (403/405/501),
+    which LinkedIn, Greenhouse, and others do.
+    """
     try:
         resp = requests.head(url, timeout=_TIMEOUT, allow_redirects=True)
-        return resp.status_code in _DEAD_CODES
+        if resp.status_code in _DEAD_CODES:
+            return True
+        if resp.status_code in _FALLBACK_CODES:
+            resp = requests.get(url, timeout=_TIMEOUT, allow_redirects=True, stream=True)
+            resp.close()
+            return resp.status_code in _DEAD_CODES
+        return False
     except requests.RequestException:
         return True
 

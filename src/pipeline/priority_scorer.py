@@ -50,9 +50,13 @@ def _fit_score(job: dict) -> int:
     return 0
 
 
-def compute_priority(job: dict) -> int:
+def compute_priority(job: dict, user_min_salary: int = 0) -> int:
     """
     Compute a priority score for a job dict.
+
+    Args:
+        job: Job record dict.
+        user_min_salary: User's minimum acceptable salary (annual). Used for +8 salary bonus.
 
     Higher = more urgent to act on. Score is clamped to >= 0.
     """
@@ -83,6 +87,13 @@ def compute_priority(job: dict) -> int:
             score += 10
         elif age_days > 30:
             score -= 5
+
+    # Salary vs user minimum
+    if user_min_salary and user_min_salary > 0:
+        salary_min = job.get("salary_min")
+        if salary_min and salary_min > 0:
+            if salary_min >= user_min_salary:
+                score += 8
 
     # Health signals from notes field
     notes_lower = (job.get("notes", "") or "").lower()

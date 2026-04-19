@@ -26,6 +26,28 @@ _NUMBER_RE = re.compile(
     re.VERBOSE,
 )
 
+_KEYWORD_STOPWORDS = frozenset({
+    "and", "the", "for", "are", "with", "you", "will", "our", "have", "this",
+    "that", "from", "they", "your", "work", "role", "team", "able", "their",
+    "been", "about", "more", "also", "we", "or", "an", "in", "to", "of", "a",
+    "is", "at", "on", "be", "as", "by", "it", "its", "can", "not", "but",
+    "join", "we're", "you'll", "we'll", "who", "what", "how",
+})
+
+_KEYWORD_RE = re.compile(r"\b[a-zA-Z][\w+#.\-]{2,}\b")
+
+
+def _extract_ats_keywords(description: str, top_n: int = 10) -> list[str]:
+    """Extract top-N technical/skill keywords from a job description by frequency."""
+    words = _KEYWORD_RE.findall(description.lower())
+    counts: dict[str, int] = {}
+    for w in words:
+        if w not in _KEYWORD_STOPWORDS and not w.isdigit():
+            counts[w] = counts.get(w, 0) + 1
+    sorted_words = sorted(counts, key=lambda w: -counts[w])
+    return sorted_words[:top_n]
+
+
 _PROMPT_TEMPLATE = """\
 You are a professional resume writer. Tailor the candidate's master CV for this specific job.
 
@@ -116,7 +138,20 @@ def tailor_resume(
 
     dropped = validate_numbers(cv_content, tailored)
     if dropped:
-        print(f"[resume_tailor] WARNING: numbers dropped from CV: {dropped}")
+        raise ValueError(
+            f"[resume_tailor] Number protection violation — these values were "
+            f"dropped from the tailored resume and must be preserved: {dropped}"
+        )
+
+    # sr-only ATS keyword injection
+    description = (job.get("description", "") or "")
+    if description:
+        keywords = _extract_ats_keywords(description)
+        if keywords:
+            kw_html = " ".join(
+                f'<span class="sr-only">{kw}</span>' for kw in keywords
+            )
+            tailored = tailored + f"\n\n{kw_html}"
 
     resumes_dir.mkdir(parents=True, exist_ok=True)
     filename = (

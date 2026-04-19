@@ -16,6 +16,7 @@ from datetime import date
 from pathlib import Path
 
 from src.pipeline.applicator import apply_to_job
+from src.pipeline.integrity_checker import run_integrity_check
 from src.pipeline.contact_finder import find_contact
 from src.pipeline.cover_letter import generate_cover_letter
 from src.pipeline.liveness import check_liveness
@@ -31,6 +32,7 @@ from src.scrapers.base import JobPosting
 from src.tracking.db import (
     compute_followup_dates,
     count_by_status,
+    get_contacts_for_company,
     get_job_by_id,
     get_jobs_by_status,
     init_db,
@@ -148,6 +150,21 @@ def run_scrape_phase(
     if not dry_run:
         _run_liveness(db_path)
 
+    # Step 8 — auto-ghost applied jobs past their 30-day window
+    if not dry_run:
+        run_followup_phase(db_path=db_path)
+
+    # Step 9 — integrity check
+    if not dry_run:
+        result = run_integrity_check(db_path)
+        if result["failures"]:
+            print(
+                f"[orchestrator] Integrity check FAILED — "
+                f"{len(result['failures'])} failure(s). See {result['log_path']}"
+            )
+        else:
+            print(f"[orchestrator] Integrity check passed. Log: {result['log_path']}")
+
     _print_summary(n_scored, n_ready, n_discarded, n_dup, dry_run)
     return {
         "scored": n_scored,
@@ -180,8 +197,19 @@ def run_prepare_phase(
 
     print(f"[orchestrator] Stage 2: {job['company']} / {job['title']}")
 
+    # Referral cross-reference
+    referral_contacts = get_contacts_for_company(job["company"], db_path)
+    if referral_contacts:
+        names = ", ".join(c["name"] for c in referral_contacts)
+        print(f"[orchestrator] Referral contacts found at {job['company']}: {names}")
+
     # Stage 2 evaluation
-    stage2 = evaluate_job(job=job, cv_path=cv_path, profile=profile)
+    stage2 = evaluate_job(
+        job=job,
+        cv_path=cv_path,
+        profile=profile,
+        referral_contacts=referral_contacts if referral_contacts else None,
+    )
     if stage2.error:
         print(f"[orchestrator] Stage 2 error for job {job_id}: {stage2.error}")
 
@@ -215,7 +243,7 @@ def run_prepare_phase(
     )
 
     # Priority score
-    updated_fields = {
+    updated_fields: dict = {
         "stage2_score": stage2.score,
         "evaluation_report_path": str(stage2.report_path),
         "tailored_resume_path": str(resume_pdf_path),
@@ -223,9 +251,14 @@ def run_prepare_phase(
         "status": "ready",
     }
 
+    if referral_contacts:
+        primary = referral_contacts[0]
+        updated_fields["referral_contact"] = f"{primary['name']} ({primary.get('title', '')})"
+
     # Recompute priority with stage2 score
     merged = {**job, **updated_fields}
-    updated_fields["priority_score"] = compute_priority(merged)
+    user_min_salary = int(profile.get("target", {}).get("min_salary", 0) or 0)
+    updated_fields["priority_score"] = compute_priority(merged, user_min_salary=user_min_salary)
 
     update_job_by_id(job_id, updated_fields, db_path)
     print(
@@ -334,13 +367,16 @@ def _get_latest_draft(company: str) -> Path | None:
     return matches[0] if matches else None
 
 
-def run_followup_phase(db_path: Path = _DEFAULT_DB) -> int:
+def run_followup_phase(db_path: Path = _DEFAULT_DB, dry_run: bool = False) -> int:
     """
     Auto-mark applied jobs as ghosted when their 30-day ghosted_date has passed.
 
     Returns:
         Number of jobs marked ghosted.
     """
+    if dry_run:
+        print("[orchestrator] (dry-run) would mark ghosted jobs")
+        return 0
     count = mark_ghosted_jobs(db_path)
     print(f"[orchestrator] Follow-up check: {count} job(s) marked ghosted")
     return count
@@ -429,7 +465,7 @@ def main() -> None:
             dry_run=args.dry_run,
         )
     elif args.phase == "followup":
-        run_followup_phase(db_path=Path(args.db))
+        run_followup_phase(db_path=Path(args.db), dry_run=args.dry_run)
     else:
         parser.error(f"Unknown phase: {args.phase}")
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -18,13 +19,19 @@ _DEFAULT_MAX_PER_COMPANY = 2
 
 def _load_outreach_log(log_path: Path = _OUTREACH_LOG) -> dict:
     if log_path.exists():
-        return json.loads(log_path.read_text(encoding="utf-8"))
+        try:
+            return json.loads(log_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            print(f"[outreach] Warning: could not parse {log_path} — starting fresh log")
+            return {}
     return {}
 
 
 def _save_outreach_log(data: dict, log_path: Path = _OUTREACH_LOG) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    tmp = log_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    os.replace(tmp, log_path)
 
 
 def outreach_count_for_company(company: str, log_path: Path = _OUTREACH_LOG) -> int:

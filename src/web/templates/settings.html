@@ -21,9 +21,14 @@
   }
   textarea.yaml-editor:focus { outline: none; border-color: #3b82f6; }
   .save-status { margin-top: 8px; min-height: 1.4em; font-size: 0.85rem; }
+  .input-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .input-row input { background:#1a1a1a;border:1px solid #333;color:#ccc;padding:7px 10px;border-radius:5px;font-size:0.85rem; }
 </style>
 
 <h1>Settings</h1>
+
+<!-- CV changed banner (lazy-loaded) -->
+<div hx-get="/settings/regenerate-roles" hx-trigger="load" hx-swap="outerHTML"></div>
 
 <div class="settings-section card mt-24">
   <h2>User Profile <span style="font-size:0.8rem;color:#555;font-weight:400">config/user_profile.yaml</span></h2>
@@ -50,4 +55,111 @@
     <button type="submit" class="btn btn-primary" style="margin-top:8px">Save Roles</button>
   </form>
 </div>
+
+<div class="settings-section card mt-24">
+  <h2>Contacts <span style="font-size:0.8rem;color:#555;font-weight:400">referral intelligence</span></h2>
+
+  <p style="color:#888;font-size:0.85rem;margin-bottom:12px">
+    Import your LinkedIn connections to unlock referral signals in Stage 2 evaluation.
+    Export from LinkedIn → My Network → Connections → Export contacts → Download CSV.
+  </p>
+
+  <form
+    hx-post="/settings/contacts/import"
+    hx-target="#contacts-status"
+    hx-swap="innerHTML"
+    hx-encoding="multipart/form-data"
+    style="margin-bottom:12px"
+  >
+    <input type="file" name="csv_file" accept=".csv" required style="color:#ccc">
+    <button type="submit" class="btn btn-primary" style="margin-left:8px">Import CSV</button>
+  </form>
+
+  <details style="margin-bottom:12px">
+    <summary style="color:#7eb8f7;cursor:pointer;font-size:0.85rem">Add contact manually</summary>
+    <form
+      hx-post="/settings/contacts/add"
+      hx-target="#contacts-status"
+      hx-swap="innerHTML"
+      style="margin-top:10px"
+    >
+      <div class="input-row">
+        <input type="text" name="name" placeholder="Full Name" required>
+        <input type="text" name="company" placeholder="Company" required>
+        <input type="text" name="title" placeholder="Title (optional)">
+        <button type="submit" class="btn btn-primary">Add</button>
+      </div>
+    </form>
+  </details>
+
+  <div id="contacts-status" style="font-size:0.85rem;margin-bottom:12px"></div>
+
+  <div hx-get="/settings/contacts" hx-trigger="load" hx-swap="innerHTML" id="contacts-list">
+    <p style="color:#555;font-size:0.85rem">Loading contacts…</p>
+  </div>
+</div>
+
+<div class="settings-section card mt-24">
+  <h2>Scrapers <span style="font-size:0.8rem;color:#555;font-weight:400">enable/disable sources</span></h2>
+  <div hx-get="/settings/scraper-toggles" hx-trigger="load" hx-swap="innerHTML">
+    <p style="color:#555;font-size:0.85rem">Loading…</p>
+  </div>
+</div>
+
+<div class="settings-section card mt-24">
+  <h2>Rejection Analysis</h2>
+  <p style="color:#888;font-size:0.85rem;margin-bottom:12px">
+    Analyze patterns across rejected and ghosted jobs to identify keyword gaps, timing issues, and role fit problems.
+    Requires at least 3 rejected/ghosted jobs.
+  </p>
+  <button
+    class="btn btn-primary"
+    onclick="runRejectionAnalysis()"
+    id="rejection-btn"
+  >Run Rejection Analysis</button>
+  <div id="rejection-log" style="display:none;margin-top:12px;background:#111;border:1px solid #222;border-radius:6px;padding:12px;font-family:monospace;font-size:0.78rem;color:#7eb8f7;max-height:200px;overflow-y:auto;white-space:pre-wrap"></div>
+</div>
+
+<script>
+function runRejectionAnalysis() {
+  const btn = document.getElementById('rejection-btn');
+  const log = document.getElementById('rejection-log');
+  btn.disabled = true;
+  btn.textContent = 'Running…';
+  log.style.display = 'block';
+  log.textContent = '';
+
+  fetch('/settings/rejection-analysis', { method: 'POST' })
+    .then(resp => {
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      function read() {
+        reader.read().then(({ done, value }) => {
+          if (done) {
+            btn.disabled = false;
+            btn.textContent = 'Run Rejection Analysis';
+            return;
+          }
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              log.textContent += line.slice(6) + '\n';
+              log.scrollTop = log.scrollHeight;
+            }
+          }
+          read();
+        });
+      }
+      read();
+    })
+    .catch(err => {
+      log.textContent += '[error] ' + err + '\n';
+      btn.disabled = false;
+      btn.textContent = 'Run Rejection Analysis';
+    });
+}
+</script>
 {% endblock %}

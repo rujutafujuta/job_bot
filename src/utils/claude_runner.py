@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import threading
 from collections.abc import Iterator
 
 
@@ -54,14 +55,20 @@ def run_claude(
 def stream_claude(
     prompt: str,
     tools: list[str] | None = None,
+    timeout: int = 300,
 ) -> Iterator[str]:
     """
     Run `claude -p <prompt>` and yield stdout lines as they arrive.
 
     Useful for streaming output to the browser via SSE.
 
+    Args:
+        prompt: The prompt to send to Claude.
+        tools: If provided, passed as `--allowedTools Tool1,Tool2`.
+        timeout: Seconds before raising ClaudeRunError (default 300).
+
     Raises:
-        ClaudeRunError: If claude exits non-zero after the stream ends.
+        ClaudeRunError: If claude exits non-zero or times out.
     """
     cmd = ["claude", "-p", prompt]
     if tools:
@@ -74,15 +81,31 @@ def stream_claude(
         text=True,
     )
 
-    for raw_line in proc.stdout:
-        line = raw_line.strip()
-        if line:
-            yield line
+    stderr_lines: list[str] = []
 
-    proc.wait()
+    def _drain_stderr() -> None:
+        for line in proc.stderr:
+            stderr_lines.append(line)
+
+    stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+    stderr_thread.start()
+
+    try:
+        for raw_line in proc.stdout:
+            line = raw_line.strip()
+            if line:
+                yield line
+    finally:
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            raise ClaudeRunError(f"claude timed out after {timeout}s")
+        stderr_thread.join(timeout=5)
 
     if proc.returncode != 0:
-        stderr = proc.stderr.read().strip() if proc.stderr else ""
+        stderr = "".join(stderr_lines).strip()
         raise ClaudeRunError(
             f"claude exited with exit code {proc.returncode}: {stderr}"
         )

@@ -62,10 +62,18 @@ def send_email(
         print(f"[email][DRY RUN] Would send to={to} subject='{subject}'")
         return
 
-    with smtplib.SMTP(host, port) as smtp:
-        smtp.ehlo()
-        smtp.starttls()
-        smtp.login(user, password)
-        smtp.send_message(msg)
+    try:
+        with smtplib.SMTP(host, port) as smtp:
+            smtp.ehlo()
+            smtp.starttls()
+            smtp.login(user, password)
+            smtp.send_message(msg)
+    except smtplib.SMTPAuthenticationError as exc:
+        raise RuntimeError(
+            f"[email] Gmail authentication failed — ensure SMTP_PASSWORD is an App Password "
+            f"(not your account password). Error: {exc}"
+        ) from exc
+    except (smtplib.SMTPException, OSError) as exc:
+        raise RuntimeError(f"[email] Failed to send email to {to}: {exc}") from exc
 
     print(f"[email] Sent to {to}: {subject}")

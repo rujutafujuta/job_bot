@@ -4,6 +4,13 @@
 {% block content %}
 <h1>Dashboard</h1>
 
+{% if integrity and not integrity.passed %}
+<div style="background:#450a0a;border:1px solid #7f1d1d;border-radius:6px;padding:12px 16px;margin-bottom:16px;color:#fca5a5">
+  ⚠ Integrity check failed ({{ integrity.date }}) — {{ integrity.failure_count }} failure(s), {{ integrity.warning_count }} warning(s).
+  <a href="{{ integrity.log_path }}" style="color:#f87171;margin-left:8px;font-size:0.82rem">View log</a>
+</div>
+{% endif %}
+
 <!-- Stats row — auto-refreshes every 30s via HTMX -->
 <div class="grid grid-4"
      hx-get="/stats"
@@ -64,7 +71,12 @@
           {% set label = priority_label(job.priority_score or 0) %}
           <span style="font-weight:600;color:{% if label == 'High' %}#f87171{% elif label == 'Medium' %}#facc15{% else %}#6b7280{% endif %}">{{ label }}</span>
         </td>
-        <td>{{ job.company }}</td>
+        <td>
+          {{ job.company }}
+          {% if job.referral_contact %}
+          <span title="Referral: {{ job.referral_contact }}" style="color:#a5b4fc;font-size:0.75rem;margin-left:4px">🔗</span>
+          {% endif %}
+        </td>
         <td><a href="{{ job.url }}" target="_blank">{{ job.title }}</a></td>
         <td>{{ job.stage2_score or job.stage1_score or '—' }}</td>
         <td>

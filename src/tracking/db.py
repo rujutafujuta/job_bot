@@ -406,6 +406,32 @@ def mark_ghosted_jobs(db_path: Path = _DEFAULT_DB) -> int:
         return cursor.rowcount
 
 
+def get_contacts_for_company(company: str, db_path: Path = _DEFAULT_DB) -> list[dict]:
+    """Return contacts whose company name contains the given string (case-insensitive)."""
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM contacts WHERE LOWER(company) = LOWER(?) ORDER BY name ASC",
+            (company,),
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def list_contacts(db_path: Path = _DEFAULT_DB) -> list[dict]:
+    """Return all contacts ordered by company, then name."""
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM contacts ORDER BY company ASC, name ASC"
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def count_contacts(db_path: Path = _DEFAULT_DB) -> int:
+    """Return total contact count."""
+    with _connect(db_path) as conn:
+        row = conn.execute("SELECT COUNT(*) AS n FROM contacts").fetchone()
+    return row["n"] if row else 0
+
+
 def get_recent_activity(limit: int = 10, db_path: Path = _DEFAULT_DB) -> list[dict]:
     """Return the most recently updated jobs for the activity feed."""
     with _connect(db_path) as conn:
