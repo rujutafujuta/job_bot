@@ -8,6 +8,7 @@ Later runs → start server → open browser → show running window
 from __future__ import annotations
 
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -16,6 +17,8 @@ import webbrowser
 from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox
+
+from src.utils.scheduler import build_schtasks_command
 
 ROOT = Path(__file__).resolve().parent
 ENV_PATH = ROOT / ".env"
@@ -26,6 +29,83 @@ PORT = 8000
 # Use the venv Python; fall back to the interpreter running this script
 _VENV_PY = ROOT / ".venv" / "Scripts" / "python.exe"
 PYTHON = str(_VENV_PY) if _VENV_PY.exists() else sys.executable
+
+
+# ---------------------------------------------------------------------------
+# Prerequisite checks
+# ---------------------------------------------------------------------------
+
+def _check_python_version() -> bool:
+    """Require Python 3.11+."""
+    return sys.version_info >= (3, 11)
+
+
+def _check_claude_cli() -> bool:
+    """Return True if the `claude` CLI is on PATH."""
+    return shutil.which("claude") is not None
+
+
+def _ensure_playwright() -> bool:
+    """Install playwright package + chromium into the venv if missing. Returns False on failure."""
+    try:
+        import importlib
+        importlib.import_module("playwright")
+    except ImportError:
+        print("[prereq] Installing playwright…")
+        result = subprocess.run(
+            [PYTHON, "-m", "pip", "install", "playwright"],
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            return False
+
+    # Check whether the chromium browser binary exists by running `playwright install chromium`
+    result = subprocess.run(
+        [PYTHON, "-m", "playwright", "install", "chromium"],
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
+def _run_prereq_checks() -> bool:
+    """
+    Run all prerequisite checks before startup.
+    Returns True if it's safe to continue, False if a blocking problem was found.
+    """
+    if not _check_python_version():
+        messagebox.showerror(
+            "Python version too old",
+            f"Job Bot requires Python 3.11 or later.\n\n"
+            f"You are running Python {sys.version.split()[0]}.\n\n"
+            "Download the latest Python from python.org and re-run the launcher.",
+        )
+        return False
+
+    if not _check_claude_cli():
+        messagebox.showerror(
+            "Claude Code not found",
+            "Job Bot requires the Claude Code CLI to be installed and on your PATH.\n\n"
+            "To fix:\n"
+            "  1. Install Claude Code: https://claude.ai/code\n"
+            "  2. Sign in and authenticate\n"
+            "  3. Relaunch Job Bot\n\n"
+            "All AI features (scoring, evaluation, outreach drafts) run through the\n"
+            "`claude` CLI — no Anthropic API key needed.",
+        )
+        return False
+
+    # Playwright is silent — install in background, warn if it fails
+    if not _ensure_playwright():
+        messagebox.showwarning(
+            "Playwright setup failed",
+            "Could not install or set up Playwright's Chromium browser.\n\n"
+            "The Apply Co-Pilot feature won't work until you run:\n"
+            "  playwright install chromium\n\n"
+            "Everything else (scraping, scoring, outreach) will work normally.",
+        )
+        # Non-blocking — let startup continue
+
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +271,101 @@ class _SetupWindow:
 
 
 # ---------------------------------------------------------------------------
+# Scheduler dialog
+# ---------------------------------------------------------------------------
+
+class _SchedulerDialog:
+    """Ask the user whether to enable daily automatic scraping and at what time."""
+
+    def __init__(self) -> None:
+        self.enabled = False
+        self.time = "03:00"
+
+        root = tk.Tk()
+        root.title("Job Bot — Daily Scraping")
+        root.resizable(False, False)
+        root.configure(bg="#1a1a2e")
+        self._root = root
+        self._build()
+        root.mainloop()
+
+    def _build(self) -> None:
+        pad = {"padx": 24, "pady": 6}
+
+        tk.Label(self._root, text="Automatic Daily Scraping",
+                 bg="#1a1a2e", fg="#ffffff", font=("Segoe UI", 14, "bold")).pack(pady=(24, 4))
+        tk.Label(self._root,
+                 text="Job Bot can scrape for new jobs automatically every night\n"
+                      "while you sleep, so your dashboard is ready each morning.",
+                 bg="#1a1a2e", fg="#9ca3af", font=("Segoe UI", 10),
+                 justify="center").pack(pady=(0, 16))
+
+        frame = tk.Frame(self._root, bg="#16213e", highlightbackground="#334155",
+                         highlightthickness=1)
+        frame.pack(fill="x", **pad)
+
+        tk.Label(frame, text="Run daily scrape at:",
+                 bg="#16213e", fg="#f8fafc", font=("Segoe UI", 10, "bold")).pack(
+            anchor="w", padx=12, pady=(12, 4))
+
+        time_row = tk.Frame(frame, bg="#16213e")
+        time_row.pack(anchor="w", padx=12, pady=(0, 12))
+
+        self._hour_var = tk.StringVar(value="03")
+        self._min_var = tk.StringVar(value="00")
+
+        tk.Spinbox(time_row, from_=0, to=23, width=3, format="%02.0f",
+                   textvariable=self._hour_var,
+                   bg="#0f172a", fg="#e2e8f0", buttonbackground="#334155",
+                   relief="flat", font=("Consolas", 12)).pack(side="left")
+        tk.Label(time_row, text=":", bg="#16213e", fg="#e2e8f0",
+                 font=("Consolas", 12, "bold")).pack(side="left", padx=2)
+        tk.Spinbox(time_row, from_=0, to=59, width=3, format="%02.0f",
+                   textvariable=self._min_var,
+                   bg="#0f172a", fg="#e2e8f0", buttonbackground="#334155",
+                   relief="flat", font=("Consolas", 12)).pack(side="left")
+        tk.Label(time_row, text="(24-hour, e.g. 03:00 = 3am)",
+                 bg="#16213e", fg="#64748b", font=("Segoe UI", 9)).pack(side="left", padx=(10, 0))
+
+        btn_frame = tk.Frame(self._root, bg="#1a1a2e")
+        btn_frame.pack(fill="x", padx=24, pady=(12, 24))
+        tk.Button(btn_frame, text="Yes, schedule it →", command=self._on_yes,
+                  bg="#2563eb", fg="white", activebackground="#1d4ed8",
+                  font=("Segoe UI", 11, "bold"), relief="flat",
+                  padx=20, pady=8, cursor="hand2").pack(side="right")
+        tk.Button(btn_frame, text="Skip for now", command=self._root.destroy,
+                  bg="#374151", fg="#9ca3af", activebackground="#4b5563",
+                  font=("Segoe UI", 10), relief="flat",
+                  padx=12, pady=8, cursor="hand2").pack(side="right", padx=(0, 8))
+
+    def _on_yes(self) -> None:
+        hour = self._hour_var.get().zfill(2)
+        minute = self._min_var.get().zfill(2)
+        self.time = f"{hour}:{minute}"
+        self.enabled = True
+        self._root.destroy()
+
+
+def _setup_scheduler(time: str) -> None:
+    """Register the Windows Task Scheduler job and show success/failure feedback."""
+    cmd = build_schtasks_command(time)
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    if result.returncode == 0:
+        messagebox.showinfo(
+            "Scheduler set up",
+            f"Job Bot will scrape automatically every day at {time}.\n\n"
+            "To remove it later:\n  schtasks /Delete /TN \"JobBot Scrape\" /F",
+        )
+    else:
+        messagebox.showwarning(
+            "Scheduler setup failed",
+            f"Could not register the scheduled task.\n\n{result.stderr.strip()}\n\n"
+            "You can set it up manually later:\n"
+            "  python -m src.pipeline.orchestrator --schedule",
+        )
+
+
+# ---------------------------------------------------------------------------
 # Running window
 # ---------------------------------------------------------------------------
 
@@ -308,7 +483,12 @@ def _launch() -> None:
     _RunningWindow(server)
 
 
+# ... (existing imports and classes) ...
+
 def main() -> None:
+    if not _run_prereq_checks():
+        return
+
     if not _is_setup_complete():
         setup = _SetupWindow()
         if not setup.completed:
@@ -323,9 +503,14 @@ def main() -> None:
                     "Profile setup was not completed. Please run Job Bot again to finish.",
                 )
                 return
+        
+        # --- NEW SCHEDULER LOGIC ---
+        sched = _SchedulerDialog()
+        if sched.enabled:
+            _setup_scheduler(sched.time)
+        # ---------------------------
 
     _launch()
-
 
 if __name__ == "__main__":
     main()

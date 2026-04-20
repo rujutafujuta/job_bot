@@ -36,23 +36,6 @@ Daily run (3am, unattended):
 
 ## Getting Started
 
-### Prerequisites
-
-**Python 3.11+**
-```bash
-python --version
-```
-
-**Claude Code CLI** (must be installed and authenticated — this is what runs all AI)
-```bash
-claude --version
-```
-
-**Playwright**
-```bash
-playwright install chromium
-```
-
 ### 1. Clone and install
 
 ```bash
@@ -60,51 +43,55 @@ git clone https://github.com/rujutafujuta/job_bot
 cd job_bot
 
 python -m venv .venv
-.venv\Scripts\activate          # Windows
-# source .venv/bin/activate     # macOS/Linux
-
+.venv\Scripts\activate
 pip install -r requirements.txt
-playwright install chromium
 ```
 
-### 2. Launch the app
+### 2. Create a desktop shortcut
 
-Double-click **`launch.py`** (or run `python launch.py`) — that's it.
+Run this once — it creates a **Job Bot** shortcut on your desktop:
 
-**First run:** A setup GUI appears asking for your API credentials:
+```bash
+python scripts/create_shortcut.py
+```
+
+From here, you never need to open a terminal again. Double-click **Job Bot** any time to launch.
+
+<details>
+<summary>Manual shortcut (if the script doesn't work)</summary>
+
+1. Right-click your desktop → **New → Shortcut**
+2. In the "Type the location of the item" box, paste this (with your actual paths):
+   ```
+   C:\Users\YourName\projects\job_bot\.venv\Scripts\pythonw.exe C:\Users\YourName\projects\job_bot\launch.py
+   ```
+   Not sure of the paths? Run this in your terminal to print the exact `pythonw.exe` path:
+   ```bash
+   python -c "import sys; print(sys.executable.replace('python.exe','pythonw.exe'))"
+   ```
+3. Click **Next**, name it **Job Bot**, click **Finish**
+
+</details>
+
+### 3. Launch the app
+
+Double-click the **Job Bot** shortcut (or run `python launch.py` from the terminal).
+
+**First run:** A setup GUI walks you through everything:
+- Checks Python 3.11+, Claude Code CLI, and Playwright — and alerts you to anything missing
+- Asks for your API credentials:
 
 | Variable | Where to get it | Required |
 |---|---|---|
 | `APIFY_TOKEN` | apify.com → Settings → API Tokens | Yes — covers LinkedIn, Indeed, Glassdoor, Google Jobs, ZipRecruiter |
 | `ADZUNA_APP_ID` / `ADZUNA_API_KEY` | developer.adzuna.com | Optional — adds Adzuna source |
 
-**No `ANTHROPIC_API_KEY` needed.** All AI runs through your Claude Code subscription via the `claude` CLI.
+- Opens a terminal for the profile setup wizard — follow the prompts to create your profile and CV
+- Starts the dashboard automatically when done
 
-After entering credentials, a terminal opens for the profile setup wizard. Follow the prompts to create your `config/user_profile.yaml` and `data/cv.md`. When done, the dashboard opens automatically.
+**Every subsequent launch:** Server starts silently, browser opens, a small status window lets you stop when done.
 
-**Every subsequent run:** The launcher silently starts the server and opens your browser. A small status window lets you stop the server when you're done.
-
-### 3. Create a desktop shortcut (never touch the code again)
-
-Create a one-click shortcut so you never need to open a terminal:
-
-**Windows:**
-1. Right-click on your desktop → **New → Shortcut**
-2. Location: `C:\path\to\.venv\Scripts\pythonw.exe C:\path\to\job_bot\launch.py`
-   *(use `pythonw.exe` — no console window)*
-3. Name it **Job Bot**
-4. Right-click the shortcut → **Properties → Change Icon** → browse to any `.ico` you like
-
-**Or create a VBS wrapper** (hides all console output completely):
-
-Create `JobBot.vbs` on your desktop:
-```vbs
-Set WshShell = CreateObject("WScript.Shell")
-WshShell.Run "C:\path\to\.venv\Scripts\pythonw.exe C:\path\to\job_bot\launch.py", 0
-Set WshShell = Nothing
-```
-
-Double-click `JobBot.vbs` — the setup GUI or status window appears with no terminal.
+> **One thing the launcher can't install for you:** [Claude Code CLI](https://claude.ai/code). All AI features run through it — no `ANTHROPIC_API_KEY` needed, just your Claude subscription. Install and authenticate it once before first launch.
 
 ### 4. Run your first scrape
 
@@ -116,20 +103,21 @@ python -m src.pipeline.orchestrator --phase scrape
 
 This scrapes all enabled sources, scores every posting, and automatically triggers deep evaluation + resume tailoring for your best matches (95+ score). Takes a few minutes on first run.
 
-### 5. Schedule daily runs (optional)
+### 5. Schedule daily runs
 
-Register a Windows Task Scheduler job to run the pipeline automatically at 3:00am every day:
+By default, the **First-time setup** will ask if you want to schedule daily runs. The pipeline is designed to run automatically (typically at 3:00 AM) while you sleep, so your dashboard is ready when you wake up.
 
+**To change or manually set the schedule:**
+If you skipped this during setup or want to change the time, run:
 ```bash
 python -m src.pipeline.orchestrator --schedule
-```
 
-Verify it was registered:
+To verify it was registered:
 ```bash
 schtasks /Query /TN "JobBot Scrape"
 ```
 
-To remove the scheduled task:
+To remove it:
 ```bash
 schtasks /Delete /TN "JobBot Scrape" /F
 ```
@@ -142,17 +130,11 @@ schtasks /Delete /TN "JobBot Scrape" /F
 
 A comprehensive Markdown document of everything you've ever done — every project, internship, certification, publication, skill, and metric. Not formatted for any specific job. Claude selects and tailors subsets per application.
 
-```
-data/cv.md      ← YOUR CV (gitignored, source of truth)
-```
+The first-run setup wizard asks you to paste or write your CV interactively. After that, if you update your CV, go to **Settings → CV Editor** in the dashboard to edit it directly in the browser — no need to touch the file manually.
 
 ### User Profile (`config/user_profile.yaml`)
 
-Generated by the onboarding wizard, or copy the example and fill it in manually:
-
-```bash
-cp config/user_profile.yaml.example config/user_profile.yaml
-```
+Created automatically during the first-run setup wizard — you won't need to write it by hand. To update it after setup, go to **Settings → Profile** in the dashboard.
 
 | Section | Fields |
 |---|---|
@@ -162,18 +144,21 @@ cp config/user_profile.yaml.example config/user_profile.yaml
 | `education` | degree, field, university, graduation year |
 | `cover_letter_context` | career goals, motivations, strengths, industries |
 | `exclusions` | companies and industries to skip |
-| `outreach` | max emails per company, tone, require_approval flag |
-| `learned_answers` | auto-populated by form-fill co-pilot over time |
+| `outreach` | max emails per company, tone |
+| `learned_answers` | auto-populated by the Apply Co-Pilot over time |
 
 ---
 
 ## Daily Workflow
 
-1. **Morning** — Open http://localhost:8000. The 3am run has already scraped, scored, and prepared materials for your best matches.
-2. **Review queue** — Read the Stage 2 report for each ready job. Check the tailored resume and cover letter.
-3. **Apply** — Click Apply on a job. Playwright opens the application form pre-filled. You review everything and click Submit yourself.
-4. **Outreach** — Go to `/outreach`. Copy or send the drafted email/LinkedIn message manually.
-5. **Track** — Update job statuses in `/applied` as you hear back. Follow-up reminders appear automatically.
+The 3am scheduled run handles everything before you wake up. Your morning routine is just review and act:
+
+1. **Double-click Job Bot** — dashboard opens at http://localhost:8000
+2. **Review queue** — Read the Stage 2 report for each ready job. Check the tailored resume and cover letter
+3. **Apply** — Click Apply. Playwright opens the form pre-filled — you review and click Submit yourself
+4. **Outreach** — Go to `/outreach`. Copy the drafted email or LinkedIn message and send it manually
+5. **Track** — Update statuses in `/applied` as you hear back. Follow-up reminders appear automatically
+6. **Close Job Bot** — click Stop in the status window when you're done for the day
 
 ---
 
@@ -349,6 +334,8 @@ job_bot/
 │       └── scheduler.py            ← Windows Task Scheduler integration
 │
 ├── launch.py                       ← One-click launcher (GUI setup + server start)
+├── scripts/
+│   └── create_shortcut.py          ← Creates a desktop shortcut for launch.py
 └── tests/                          ← pytest test suite (354 tests)
 ```
 
