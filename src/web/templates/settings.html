@@ -107,6 +107,16 @@
 </div>
 
 <div class="settings-section card mt-24">
+  <h2>Scraper Health <span style="font-size:0.8rem;color:#555;font-weight:400">per-source run history</span></h2>
+  <p style="color:#9ca3af;font-size:0.85rem;margin-bottom:12px">
+    Sources with 3+ consecutive zero-result days are flagged in orange on the dashboard.
+  </p>
+  <div hx-get="/settings/scraper-health" hx-trigger="load" hx-swap="innerHTML">
+    <p style="color:#555;font-size:0.85rem">Loading…</p>
+  </div>
+</div>
+
+<div class="settings-section card mt-24">
   <h2>Rejection Analysis</h2>
   <p style="color:#888;font-size:0.85rem;margin-bottom:12px">
     Analyze patterns across rejected and ghosted jobs to identify keyword gaps, timing issues, and role fit problems.
@@ -160,6 +170,53 @@ function runRejectionAnalysis() {
       btn.disabled = false;
       btn.textContent = 'Run Rejection Analysis';
     });
+}
+</script>
+
+<div class="settings-section card mt-24">
+  <h2>Data Backup &amp; Restore</h2>
+  <p style="color:#9ca3af;font-size:0.9rem;margin-bottom:16px">
+    Backup zips <code>data/tracking.db</code> + <code>data/</code> into <code>backups/</code>.
+    Restore replaces both in-place (requires server restart to apply).
+  </p>
+
+  <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">
+    <div>
+      <button
+        hx-post="/settings/backup"
+        hx-target="#backup-result"
+        hx-swap="innerHTML"
+        class="btn btn-primary">
+        Create Backup
+      </button>
+    </div>
+
+    <form style="display:flex;flex-direction:column;gap:8px" onsubmit="submitRestore(event)">
+      <label style="font-size:0.85rem;color:#9ca3af">Restore from backup zip:</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="file" id="restore-file" accept=".zip" required
+          style="font-size:0.85rem;color:#d1d5db">
+        <button type="submit" class="btn btn-secondary"
+          onclick="return confirm('This will overwrite your current database and data files. Continue?')">
+          Restore
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <div id="backup-result" style="margin-top:12px;font-size:0.85rem"></div>
+  <div id="restore-result" style="margin-top:4px;font-size:0.85rem"></div>
+</div>
+
+<script>
+async function submitRestore(event) {
+  event.preventDefault();
+  const file = document.getElementById('restore-file').files[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append('backup_file', file);
+  const res = await fetch('/settings/restore', { method: 'POST', body: form });
+  document.getElementById('restore-result').innerHTML = await res.text();
 }
 </script>
 {% endblock %}

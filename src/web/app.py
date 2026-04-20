@@ -35,11 +35,19 @@ from src.tracking.db import (
     get_recent_activity,
     init_db,
     list_contacts,
+    get_scraper_health,
+    get_stale_scrapers,
+    list_outreach_messages,
     update_job_by_id,
+    update_outreach_status,
 )
+from src.utils.backup import create_backup, restore_backup
 from src.utils.config_loader import load_settings, save_settings
+from src.pipeline.outreach import migrate_pending_outreach_files
 
 _DB_PATH = Path("data/tracking.db")
+_DATA_DIR = Path("data")
+_BACKUPS_DIR = Path("backups")
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 _PROFILE_PATH = Path("config/user_profile.yaml")
 _ROLES_PATH = Path("config/target_roles.yaml")
@@ -54,6 +62,7 @@ _pipeline_lock = threading.Lock()
 @app.on_event("startup")
 async def startup() -> None:
     init_db(_DB_PATH)
+    migrate_pending_outreach_files(db_path=_DB_PATH)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -63,6 +72,7 @@ async def dashboard(request: Request) -> HTMLResponse:
     priority_queue = get_priority_queue(db_path=_DB_PATH)
     followups_due = get_followup_due(db_path=_DB_PATH)
     integrity = get_latest_integrity_result()
+    stale_scrapers = get_stale_scrapers(threshold_days=3, db_path=_DB_PATH)
     return templates.TemplateResponse(
         request=request,
         name="dashboard.html",
@@ -77,6 +87,7 @@ async def dashboard(request: Request) -> HTMLResponse:
             "scored": counts.get("scored", 0),
             "applied": counts.get("applied", 0),
             "integrity": integrity,
+            "stale_scrapers": stale_scrapers,
         },
     )
 
@@ -205,90 +216,31 @@ async def export_applied() -> StreamingResponse:
     )
 
 
-_PENDING_DIR = Path("data/pending_outreach")
-
-
-def _parse_draft_file(path: Path) -> dict:
-    """Parse a pending outreach draft text file into a structured dict."""
-    lines = path.read_text(encoding="utf-8").splitlines()
-    meta = {}
-    body_lines = []
-    past_sep = False
-    for line in lines:
-        if line == "---":
-            past_sep = True
-            continue
-        if past_sep:
-            body_lines.append(line)
-        else:
-            if line.startswith("TO:"):
-                meta["to_email"] = line[3:].strip()
-            elif line.startswith("LINKEDIN:"):
-                meta["linkedin_url"] = line[9:].strip()
-            elif line.startswith("CONTACT:"):
-                meta["contact_name"] = line[8:].strip()
-            elif line.startswith("SUBJECT:"):
-                meta["subject"] = line[8:].strip()
-            elif line.startswith("RESUME:"):
-                meta["resume_path"] = line[7:].strip()
-    meta["body"] = "\n".join(body_lines).strip()
-    meta["filename"] = path.name
-    return meta
-
-
 @app.get("/outreach", response_class=HTMLResponse)
 async def outreach_page(request: Request) -> HTMLResponse:
-    drafts = []
-    if _PENDING_DIR.exists():
-        for txt_file in sorted(_PENDING_DIR.glob("*.txt"), key=lambda p: p.stat().st_mtime, reverse=True):
-            draft = _parse_draft_file(txt_file)
-            # Derive company/title from filename (company_slug_TIMESTAMP.txt)
-            parts = txt_file.stem.rsplit("_", 2)
-            draft["company"] = parts[0].replace("_", " ") if parts else ""
-            draft["title"] = ""
-            drafts.append(draft)
-
-    # Enrich from DB to get job title
-    db_pending = get_pending_outreach(_DB_PATH)
-    draft_lookup = {d["filename"]: d for d in drafts}
-    for job in db_pending:
-        fname = Path(job.get("outreach_draft_path", "")).name
-        if fname in draft_lookup:
-            draft_lookup[fname]["title"] = job.get("title", "")
-            draft_lookup[fname]["company"] = job.get("company", draft_lookup[fname]["company"])
-
+    messages = list_outreach_messages(_DB_PATH)
     return templates.TemplateResponse(
         request=request,
         name="outreach.html",
-        context={"drafts": drafts},
+        context={"drafts": messages},
     )
 
 
-@app.post("/outreach/{filename}/send", response_class=HTMLResponse)
-async def mark_outreach_sent(filename: str) -> HTMLResponse:
-    """Mark a draft as sent — updates DB and returns empty string (removes card)."""
-    db_pending = get_pending_outreach(_DB_PATH)
-    for job in db_pending:
-        if Path(job.get("outreach_draft_path", "")).name == filename:
-            update_job_by_id(job["id"], {"outreach_status": "sent"}, _DB_PATH)
-            break
+@app.post("/outreach/{message_id}/mark-sent", response_class=HTMLResponse)
+async def mark_outreach_sent(message_id: int) -> HTMLResponse:
+    """Flip draft → sent; remove card from UI."""
+    update_outreach_status(message_id, "sent", _DB_PATH)
     return HTMLResponse("")
 
 
-@app.delete("/outreach/{filename}", response_class=HTMLResponse)
-async def delete_outreach_draft(filename: str) -> HTMLResponse:
-    """Delete a pending outreach draft file and clear the DB path."""
-    safe_name = Path(filename).name  # prevent path traversal
-    draft_path = _PENDING_DIR / safe_name
-    if draft_path.exists():
-        draft_path.unlink()
-
-    db_pending = get_pending_outreach(_DB_PATH)
-    for job in db_pending:
-        if Path(job.get("outreach_draft_path", "")).name == safe_name:
-            update_job_by_id(job["id"], {"outreach_draft_path": "", "outreach_status": "none"}, _DB_PATH)
-            break
-    return HTMLResponse("")
+@app.post("/outreach/{message_id}/mark-replied", response_class=HTMLResponse)
+async def mark_outreach_replied(message_id: int) -> HTMLResponse:
+    """Flip sent → replied; update status badge in UI."""
+    update_outreach_status(message_id, "replied", _DB_PATH)
+    return HTMLResponse(
+        f'<span class="status-badge" style="background:#7c3aed;color:#e9d5ff;'
+        f'padding:2px 8px;border-radius:4px;font-size:0.75rem">replied</span>'
+    )
 
 
 @app.post("/apply/{job_id}")
@@ -506,6 +458,85 @@ async def save_scraper_toggles(request: Request) -> HTMLResponse:
     settings["scrapers"] = {name: (name in enabled) for name in scraper_names}
     save_settings(settings)
     return HTMLResponse('<p style="color:#4ade80">Scraper settings saved.</p>')
+
+
+@app.get("/settings/scraper-health", response_class=HTMLResponse)
+async def scraper_health_fragment(request: Request) -> HTMLResponse:
+    """HTMX fragment — scraper health table for settings page."""
+    health = get_scraper_health(db_path=_DB_PATH)
+    if not health:
+        return HTMLResponse(
+            '<p style="color:#555;font-size:0.85rem">No scraper runs recorded yet. '
+            'Run the pipeline first.</p>'
+        )
+
+    rows = "".join(
+        f"<tr>"
+        f"<td style='padding:6px 12px'>{r['source']}</td>"
+        f"<td style='padding:6px 12px;color:#9ca3af'>{r['last_run_date'][:10] if r['last_run_date'] else '—'}</td>"
+        f"<td style='padding:6px 12px;text-align:center'>{r['last_jobs_found']}</td>"
+        f"<td style='padding:6px 12px;text-align:center;"
+        f"{'color:#f87171' if r['consecutive_zero_days'] >= 3 else 'color:#4ade80'}'>"
+        f"{r['consecutive_zero_days']}</td>"
+        f"<td style='padding:6px 12px;color:#6b7280;font-size:0.8rem'>{r['last_error'] or '—'}</td>"
+        f"</tr>"
+        for r in health
+    )
+    return HTMLResponse(
+        f'<table style="width:100%;border-collapse:collapse;font-size:0.85rem">'
+        f'<thead><tr style="border-bottom:1px solid #333;color:#6b7280">'
+        f'<th style="padding:6px 12px;text-align:left">Source</th>'
+        f'<th style="padding:6px 12px;text-align:left">Last Run</th>'
+        f'<th style="padding:6px 12px;text-align:center">Last Found</th>'
+        f'<th style="padding:6px 12px;text-align:center">Consec. Zeros</th>'
+        f'<th style="padding:6px 12px;text-align:left">Last Error</th>'
+        f'</tr></thead><tbody>{rows}</tbody></table>'
+    )
+
+
+@app.post("/settings/backup", response_class=HTMLResponse)
+async def create_backup_route(request: Request) -> HTMLResponse:
+    """Create a backup zip of the database and data directory."""
+    try:
+        zip_path = create_backup(db_path=_DB_PATH, data_dir=_DATA_DIR, backups_dir=_BACKUPS_DIR)
+        filename = zip_path.name
+        return HTMLResponse(
+            f'<p style="color:#4ade80">Backup created: '
+            f'<a href="/settings/backup/download/{filename}" '
+            f'style="color:#60a5fa">{filename}</a></p>'
+        )
+    except Exception as exc:
+        return HTMLResponse(f'<p style="color:#f87171">Backup failed: {exc}</p>')
+
+
+@app.get("/settings/backup/download/{filename}")
+async def download_backup(filename: str):
+    """Serve a backup zip file for download."""
+    zip_path = _BACKUPS_DIR / filename
+    if not zip_path.exists() or zip_path.suffix != ".zip":
+        return HTMLResponse("Not found", status_code=404)
+    return StreamingResponse(
+        iter([zip_path.read_bytes()]),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/settings/restore", response_class=HTMLResponse)
+async def restore_backup_route(backup_file: UploadFile = File(...)) -> HTMLResponse:
+    """Restore from an uploaded backup zip — replaces db and data/ in-place."""
+    if not backup_file.filename or not backup_file.filename.endswith(".zip"):
+        return HTMLResponse('<p style="color:#f87171">Upload a .zip backup file.</p>')
+    try:
+        content = await backup_file.read()
+        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+            tmp.write(content)
+            tmp_path = Path(tmp.name)
+        restore_backup(zip_path=tmp_path, db_path=_DB_PATH, data_dir=_DATA_DIR)
+        tmp_path.unlink(missing_ok=True)
+        return HTMLResponse('<p style="color:#4ade80">Restore complete. Restart the server to apply changes.</p>')
+    except Exception as exc:
+        return HTMLResponse(f'<p style="color:#f87171">Restore failed: {exc}</p>')
 
 
 @app.post("/run")

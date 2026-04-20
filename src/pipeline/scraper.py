@@ -14,6 +14,7 @@ from src.scrapers.jobicy import JobicyScraper
 from src.scrapers.remoteok import RemoteOKScraper
 from src.scrapers.remotive import RemotiveScraper
 from src.scrapers.simplify import SimplifyJobsScraper
+from src.tracking.db import record_scraper_run
 from src.tracking.deduplication import is_duplicate
 from src.utils.config_loader import load_settings
 
@@ -95,12 +96,17 @@ def run_scrapers(
         scraper = scraper_cls(config=cfg)
 
         print(f"[scraper] Running {source}...")
+        import time
+        _t0 = time.monotonic()
+        _error: str | None = None
         try:
             postings = scraper.scrape(queries)
         except Exception as e:
             print(f"[scraper] {source}: error — {e}")
-            continue
+            _error = str(e)
+            postings = []
 
+        source_new = 0
         for posting in postings:
             if not posting.url or not posting.title or not posting.company:
                 continue
@@ -108,6 +114,21 @@ def run_scrapers(
                 total_seen += 1
                 continue
             new_jobs.append(posting)
+            source_new += 1
+
+        _duration = time.monotonic() - _t0
+        if not dry_run:
+            try:
+                record_scraper_run(
+                    source=source,
+                    jobs_found=len(postings),
+                    jobs_passed_stage1=source_new,
+                    error_message=_error,
+                    duration_seconds=round(_duration, 2),
+                    db_path=db_path,
+                )
+            except Exception as rec_exc:
+                print(f"[scraper] Warning: could not record health for {source}: {rec_exc}")
 
         print(f"[scraper] {source}: {len(postings)} fetched, running total {len(new_jobs)} new")
 

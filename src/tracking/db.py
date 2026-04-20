@@ -91,6 +91,33 @@ CREATE TABLE IF NOT EXISTS contacts (
     added_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
     UNIQUE(name, company)
 );
+
+CREATE TABLE IF NOT EXISTS outreach_messages (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id          INTEGER          REFERENCES jobs(id),
+    type            TEXT    NOT NULL DEFAULT 'email',
+    to_name         TEXT             DEFAULT '',
+    to_email        TEXT             DEFAULT '',
+    to_linkedin     TEXT             DEFAULT '',
+    subject         TEXT             DEFAULT '',
+    body            TEXT             DEFAULT '',
+    status          TEXT    NOT NULL DEFAULT 'draft',
+    created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    sent_at         TEXT             DEFAULT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_outreach_job ON outreach_messages(job_id);
+
+CREATE TABLE IF NOT EXISTS scraper_runs (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    source              TEXT    NOT NULL,
+    run_date            TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    jobs_found          INTEGER NOT NULL DEFAULT 0,
+    jobs_passed_stage1  INTEGER NOT NULL DEFAULT 0,
+    error_message       TEXT             DEFAULT NULL,
+    duration_seconds    REAL             DEFAULT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_scraper_runs_source ON scraper_runs(source);
+CREATE INDEX IF NOT EXISTS idx_scraper_runs_date   ON scraper_runs(run_date DESC);
 """
 
 
@@ -440,3 +467,139 @@ def get_recent_activity(limit: int = 10, db_path: Path = _DEFAULT_DB) -> list[di
             (limit,),
         ).fetchall()
     return [_row_to_dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Outreach messages
+# ---------------------------------------------------------------------------
+
+def save_outreach_draft(
+    job_id: int | None,
+    msg_type: str,
+    to_name: str,
+    to_email: str,
+    to_linkedin: str,
+    subject: str,
+    body: str,
+    db_path: Path = _DEFAULT_DB,
+) -> int:
+    """Insert a new outreach message record with status='draft'. Returns its id."""
+    with _connect(db_path) as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO outreach_messages
+                (job_id, type, to_name, to_email, to_linkedin, subject, body, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'draft')
+            """,
+            (job_id, msg_type, to_name, to_email, to_linkedin, subject, body),
+        )
+        return cur.lastrowid
+
+
+def list_outreach_messages(db_path: Path = _DEFAULT_DB) -> list[dict]:
+    """Return all outreach messages, newest first."""
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM outreach_messages ORDER BY created_at DESC"
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def update_outreach_status(
+    message_id: int,
+    status: str,
+    db_path: Path = _DEFAULT_DB,
+) -> bool:
+    """Update the status of an outreach message. Returns True if a row was changed."""
+    sent_at_clause = ", sent_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')" if status == "sent" else ""
+    with _connect(db_path) as conn:
+        cur = conn.execute(
+            f"UPDATE outreach_messages SET status = ?{sent_at_clause} WHERE id = ?",
+            (status, message_id),
+        )
+        return cur.rowcount > 0
+
+
+def count_outreach_for_company(company: str, db_path: Path = _DEFAULT_DB) -> int:
+    """Return how many outreach messages exist for jobs at the given company."""
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS n
+            FROM outreach_messages om
+            JOIN jobs j ON om.job_id = j.id
+            WHERE j.company = ?
+            """,
+            (company,),
+        ).fetchone()
+    return row["n"] if row else 0
+
+
+# ---------------------------------------------------------------------------
+# Scraper health
+# ---------------------------------------------------------------------------
+
+def record_scraper_run(
+    source: str,
+    jobs_found: int,
+    jobs_passed_stage1: int,
+    error_message: str | None,
+    duration_seconds: float,
+    db_path: Path = _DEFAULT_DB,
+) -> None:
+    """Insert one row per scraper per pipeline run."""
+    with _connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO scraper_runs
+                (source, jobs_found, jobs_passed_stage1, error_message, duration_seconds)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (source, jobs_found, jobs_passed_stage1, error_message, duration_seconds),
+        )
+
+
+def get_scraper_health(db_path: Path = _DEFAULT_DB) -> list[dict]:
+    """Return per-source summary: last run date, last jobs found, consecutive zero days."""
+    with _connect(db_path) as conn:
+        sources = [
+            r["source"]
+            for r in conn.execute(
+                "SELECT DISTINCT source FROM scraper_runs ORDER BY source"
+            ).fetchall()
+        ]
+        result = []
+        for source in sources:
+            rows = conn.execute(
+                """
+                SELECT jobs_found, run_date, error_message
+                FROM scraper_runs
+                WHERE source = ?
+                ORDER BY run_date DESC, id DESC
+                """,
+                (source,),
+            ).fetchall()
+            last = rows[0]
+            consecutive_zeros = 0
+            for row in rows:
+                if row["jobs_found"] == 0:
+                    consecutive_zeros += 1
+                else:
+                    break
+            result.append({
+                "source": source,
+                "last_run_date": last["run_date"],
+                "last_jobs_found": last["jobs_found"],
+                "last_error": last["error_message"],
+                "consecutive_zero_days": consecutive_zeros,
+            })
+    return result
+
+
+def get_stale_scrapers(threshold_days: int = 3, db_path: Path = _DEFAULT_DB) -> list[str]:
+    """Return sources with consecutive_zero_days >= threshold_days."""
+    return [
+        row["source"]
+        for row in get_scraper_health(db_path=db_path)
+        if row["consecutive_zero_days"] >= threshold_days
+    ]

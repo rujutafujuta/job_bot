@@ -324,6 +324,7 @@ def run_apply_phase(
         profile=profile,
         pdf_resume=pdf_resume if pdf_resume.exists() else Path("data/cv.md"),
         dry_run=dry_run,
+        db_path=db_path,
     )
     print(f"[orchestrator] Outreach: {outreach_result['status']}")
 

@@ -1,50 +1,23 @@
-"""Cold outreach — Claude-generated email, sent via SMTP or saved as pending."""
+"""Cold outreach — Claude-generated email, sent via SMTP or saved as DB draft."""
 
 from __future__ import annotations
 
-import json
-import os
 import re
-from datetime import datetime
 from pathlib import Path
 
 from src.scrapers.base import JobPosting
 from src.pipeline.contact_finder import Contact
+from src.tracking.db import (
+    _DEFAULT_DB,
+    count_outreach_for_company,
+    get_job,
+    save_outreach_draft,
+)
 from src.utils.claude_runner import run_claude
 from src.utils.email_sender import send_email
 
-_OUTREACH_LOG = Path("data/outreach_log.json")
 _DEFAULT_MAX_PER_COMPANY = 2
-
-
-def _load_outreach_log(log_path: Path = _OUTREACH_LOG) -> dict:
-    if log_path.exists():
-        try:
-            return json.loads(log_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            print(f"[outreach] Warning: could not parse {log_path} — starting fresh log")
-            return {}
-    return {}
-
-
-def _save_outreach_log(data: dict, log_path: Path = _OUTREACH_LOG) -> None:
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = log_path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    os.replace(tmp, log_path)
-
-
-def outreach_count_for_company(company: str, log_path: Path = _OUTREACH_LOG) -> int:
-    """Return how many outreach emails have been sent or saved for this company."""
-    key = company.lower().strip()
-    return _load_outreach_log(log_path).get(key, 0)
-
-
-def _record_outreach(company: str, log_path: Path = _OUTREACH_LOG) -> None:
-    data = _load_outreach_log(log_path)
-    key = company.lower().strip()
-    data[key] = data.get(key, 0) + 1
-    _save_outreach_log(data, log_path)
+_PENDING_DIR = Path("data/pending_outreach")
 
 _SYSTEM = (
     "You are an expert at writing cold emails that get responses. "
@@ -82,8 +55,6 @@ Application link: {job_url}
 - Do NOT mention "I applied" directly — frame it as reaching out, not chasing
 """
 
-_PENDING_DIR = Path("data/pending_outreach")
-
 
 def send_cold_outreach(
     posting: JobPosting,
@@ -91,10 +62,9 @@ def send_cold_outreach(
     profile: dict,
     pdf_resume: Path,
     dry_run: bool = False,
-    outreach_log: Path = _OUTREACH_LOG,
+    db_path: Path = _DEFAULT_DB,
 ) -> dict:
-    """
-    Generate and send a cold outreach email. Save to pending if email unavailable.
+    """Generate and send cold outreach. Save to DB draft if email unavailable.
 
     Returns:
         Dict with keys: status (str), outreach_url (str)
@@ -103,11 +73,11 @@ def send_cold_outreach(
     max_per_company = profile.get("outreach", {}).get(
         "max_per_company", _DEFAULT_MAX_PER_COMPANY
     )
-    current_count = outreach_count_for_company(posting.company, outreach_log)
+    current_count = count_outreach_for_company(posting.company, db_path=db_path)
     if current_count >= max_per_company:
         print(
-            f"[outreach] Skipping {posting.company} — already sent {current_count}/{max_per_company} "
-            f"outreach messages to this company"
+            f"[outreach] Skipping {posting.company} — already sent "
+            f"{current_count}/{max_per_company} outreach messages to this company"
         )
         return {"status": "skipped_cap", "outreach_url": ""}
 
@@ -141,10 +111,10 @@ def send_cold_outreach(
 
     if require_approval:
         print(f"[outreach] require_approval=true — saving draft for {posting.company}")
-        return _save_pending(posting, contact, subject, body, pdf_resume, dry_run, outreach_log)
+        return _save_draft(posting, contact, subject, body, dry_run, db_path)
 
     if not contact.email:
-        return _save_pending(posting, contact, subject, body, pdf_resume, dry_run)
+        return _save_draft(posting, contact, subject, body, dry_run, db_path)
 
     print(f"[outreach] Sending to {contact.email} — {subject}")
     try:
@@ -156,11 +126,11 @@ def send_cold_outreach(
             dry_run=dry_run,
         )
         if not dry_run:
-            _record_outreach(posting.company, outreach_log)
+            _save_draft(posting, contact, subject, body, dry_run, db_path, status="sent")
         return {"status": "sent", "outreach_url": contact.linkedin_url or ""}
     except Exception as e:
         print(f"[outreach] Failed to send email: {e} — saving as pending")
-        return _save_pending(posting, contact, subject, body, pdf_resume, dry_run, outreach_log)
+        return _save_draft(posting, contact, subject, body, dry_run, db_path)
 
 
 def _parse_subject_body(raw: str) -> tuple[str, str]:
@@ -184,38 +154,93 @@ def _parse_subject_body(raw: str) -> tuple[str, str]:
     return subject, "\n".join(body_lines).strip()
 
 
-def _save_pending(
+def _save_draft(
     posting: JobPosting,
     contact: Contact,
     subject: str,
     body: str,
-    pdf_resume: Path,
     dry_run: bool,
-    outreach_log: Path = _OUTREACH_LOG,
+    db_path: Path = _DEFAULT_DB,
+    status: str = "draft",
 ) -> dict:
-    """Save outreach draft to pending_outreach/ for manual sending."""
-    company_slug = re.sub(r"[^\w]", "_", posting.company)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{company_slug}_{timestamp}.txt"
+    """Save outreach as a DB record."""
+    if dry_run:
+        print(f"[outreach][DRY RUN] Would save draft for {posting.company}")
+        return {"status": "pending_user_input", "outreach_url": contact.linkedin_url or ""}
 
-    content = (
-        f"TO: {contact.email or '(email not found — search LinkedIn below)'}\n"
-        f"LINKEDIN: {contact.linkedin_url or ''}\n"
-        f"CONTACT: {contact.name} — {contact.title}\n"
-        f"SUBJECT: {subject}\n"
-        f"RESUME: {pdf_resume}\n"
-        f"---\n{body}"
+    job = get_job(posting.url, db_path=db_path)
+    job_id = job["id"] if job else None
+
+    msg_type = "linkedin" if not contact.email and contact.linkedin_url else "email"
+    save_outreach_draft(
+        job_id=job_id,
+        msg_type=msg_type,
+        to_name=contact.name or "",
+        to_email=contact.email or "",
+        to_linkedin=contact.linkedin_url or "",
+        subject=subject,
+        body=body,
+        db_path=db_path,
     )
+    print(f"[outreach] Saved draft for {posting.company}")
+    return {"status": "pending_user_input", "outreach_url": contact.linkedin_url or ""}
 
-    if not dry_run:
-        _PENDING_DIR.mkdir(parents=True, exist_ok=True)
-        (_PENDING_DIR / filename).write_text(content, encoding="utf-8")
-        _record_outreach(posting.company, outreach_log)
-        print(f"[outreach] Saved pending outreach: {filename}")
-    else:
-        print(f"[outreach][DRY RUN] Would save pending outreach for {posting.company}")
 
-    return {
-        "status": "pending_user_input",
-        "outreach_url": contact.linkedin_url or "",
-    }
+def migrate_pending_outreach_files(
+    pending_dir: Path = _PENDING_DIR,
+    db_path: Path = _DEFAULT_DB,
+) -> int:
+    """One-time import: read .txt files in pending_dir, insert as DB drafts.
+
+    Files are renamed to .migrated after import. Skips already-migrated files.
+    Returns the number of files migrated.
+    """
+    if not pending_dir.exists():
+        return 0
+
+    count = 0
+    for txt_file in pending_dir.glob("*.txt"):
+        try:
+            meta = _parse_draft_file(txt_file)
+            save_outreach_draft(
+                job_id=None,
+                msg_type="email",
+                to_name=meta.get("contact_name", ""),
+                to_email=meta.get("to_email", ""),
+                to_linkedin=meta.get("linkedin_url", ""),
+                subject=meta.get("subject", ""),
+                body=meta.get("body", ""),
+                db_path=db_path,
+            )
+            txt_file.rename(txt_file.with_suffix(".migrated"))
+            count += 1
+            print(f"[outreach] Migrated {txt_file.name} → DB")
+        except Exception as exc:
+            print(f"[outreach] Migration failed for {txt_file.name}: {exc}")
+
+    return count
+
+
+def _parse_draft_file(path: Path) -> dict:
+    """Parse a pending_outreach .txt file into a structured dict."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    meta: dict = {}
+    body_lines: list[str] = []
+    past_sep = False
+    for line in lines:
+        if line == "---":
+            past_sep = True
+            continue
+        if past_sep:
+            body_lines.append(line)
+        else:
+            if line.startswith("TO:"):
+                meta["to_email"] = line[3:].strip()
+            elif line.startswith("LINKEDIN:"):
+                meta["linkedin_url"] = line[9:].strip()
+            elif line.startswith("CONTACT:"):
+                meta["contact_name"] = line[8:].strip()
+            elif line.startswith("SUBJECT:"):
+                meta["subject"] = line[8:].strip()
+    meta["body"] = "\n".join(body_lines).strip()
+    return meta
