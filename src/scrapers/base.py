@@ -37,7 +37,8 @@ class BaseScraper(ABC):
         self._max_jobs = cfg.get("max_jobs_per_run", self._DEFAULT_MAX_JOBS)
         self._user_agent = (
             cfg.get("user_agent")
-            or "Mozilla/5.0 (compatible; job-bot/1.0; personal use)"
+            or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+               "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         )
 
     def _get(self, url: str, **kwargs) -> requests.Response:

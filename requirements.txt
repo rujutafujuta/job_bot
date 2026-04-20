@@ -23,6 +23,7 @@ apify-client>=1.8.0
 # Output generation
 playwright>=1.49.0
 openpyxl>=3.1.0
+mistune>=3.0.0
 
 # Testing
 pytest>=8.3.0

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from src.tracking.db import _DEFAULT_DB, get_jobs_by_statuses, is_discarded, is_seen, insert_job, mark_discarded
 
-_FUZZY_THRESHOLD = 0.85
+_FUZZY_THRESHOLD = 0.85  # Configurable via DEDUP_FUZZY_THRESHOLD env var or scraper config
 _ALL_ACTIVE_STATUSES = [
     "new", "scored", "ready", "applied", "skipped",
     "phone_screen", "technical", "offer", "negotiating",
@@ -37,13 +37,24 @@ def compute_hash(title: str, company: str) -> str:
     return hashlib.sha256(normalize(title, company).encode("utf-8")).hexdigest()
 
 
-def is_fuzzy_duplicate(title: str, company: str, db_path: Path = _DEFAULT_DB) -> bool:
+def is_fuzzy_duplicate(
+    title: str,
+    company: str,
+    db_path: Path = _DEFAULT_DB,
+    threshold: float = _FUZZY_THRESHOLD,
+) -> bool:
     """
     Return True if a sufficiently similar title+company exists in the DB.
 
     Uses SequenceMatcher on normalized(title + company) strings. Catches
     minor variations like "Engineer II" vs "Engineer" at the same company.
-    Falls back to exact hash check for discarded entries.
+
+    Args:
+        title: Job title to check.
+        company: Company name to check.
+        db_path: SQLite database path.
+        threshold: SequenceMatcher ratio above which a match is considered duplicate.
+                   Default 0.85. Lower = more aggressive dedup, higher = more permissive.
     """
     if is_duplicate(title, company, db_path):
         return True
@@ -52,7 +63,7 @@ def is_fuzzy_duplicate(title: str, company: str, db_path: Path = _DEFAULT_DB) ->
     for job in existing_jobs:
         existing = normalize(job.get("title", ""), job.get("company", ""))
         ratio = difflib.SequenceMatcher(None, candidate, existing).ratio()
-        if ratio >= _FUZZY_THRESHOLD:
+        if ratio >= threshold:
             return True
     return False
 

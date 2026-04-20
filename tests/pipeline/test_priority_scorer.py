@@ -91,6 +91,38 @@ class TestComputePriority:
         assert score >= 0
 
 
+class TestSalaryScoring:
+    def test_salary_above_minimum_adds_points(self):
+        base = compute_priority(_job(salary_min=100_000))
+        with_min = compute_priority(_job(salary_min=100_000), user_min_salary=80_000)
+        assert with_min > base
+
+    def test_salary_below_minimum_no_bonus(self):
+        base = compute_priority(_job(salary_min=60_000))
+        with_min = compute_priority(_job(salary_min=60_000), user_min_salary=80_000)
+        assert with_min == base
+
+    def test_salary_equal_to_minimum_adds_points(self):
+        base = compute_priority(_job())
+        with_salary = compute_priority(_job(salary_min=80_000), user_min_salary=80_000)
+        assert with_salary > base
+
+    def test_no_salary_min_no_bonus(self):
+        base = compute_priority(_job(salary_min=None))
+        with_min = compute_priority(_job(salary_min=None), user_min_salary=80_000)
+        assert with_min == base
+
+    def test_user_min_salary_zero_no_bonus(self):
+        base = compute_priority(_job(salary_min=100_000), user_min_salary=0)
+        without = compute_priority(_job(salary_min=100_000))
+        assert base == without
+
+    def test_salary_bonus_is_plus_8(self):
+        without = compute_priority(_job(salary_min=None), user_min_salary=80_000)
+        with_salary = compute_priority(_job(salary_min=100_000), user_min_salary=80_000)
+        assert with_salary - without == 8
+
+
 class TestPriorityLabel:
     def test_high_at_threshold(self):
         assert priority_label(40) == "High"

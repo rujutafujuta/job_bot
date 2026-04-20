@@ -20,7 +20,7 @@ from src.tracking.db import _DEFAULT_DB, mark_discarded
 from src.tracking.deduplication import compute_hash, record_seen
 from src.utils.claude_runner import run_claude
 
-_MAX_DESCRIPTION_CHARS = 4000
+_MAX_DESCRIPTION_CHARS = 6000
 
 _PROMPT_TEMPLATE = """You are a technical recruiter evaluating a job posting against a candidate profile.
 

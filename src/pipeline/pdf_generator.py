@@ -6,41 +6,25 @@ Uses a single browser session for batch generation to avoid repeated launch over
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
+import mistune
 from playwright.sync_api import sync_playwright
 
 _TEMPLATE_PATH = Path(__file__).parent.parent / "web" / "templates" / "resume.html"
 
-# Minimal Markdown → HTML conversion for resume content.
-# For a resume this subset is sufficient: headings, bold, italic, lists, paragraphs.
-_RULES = [
-    (re.compile(r"^#{3}\s+(.+)$", re.MULTILINE), r"<h3>\1</h3>"),
-    (re.compile(r"^#{2}\s+(.+)$", re.MULTILINE), r"<h2>\1</h2>"),
-    (re.compile(r"^#\s+(.+)$", re.MULTILINE), r"<h1>\1</h1>"),
-    (re.compile(r"\*\*(.+?)\*\*"), r"<strong>\1</strong>"),
-    (re.compile(r"\*(.+?)\*"), r"<em>\1</em>"),
-    (re.compile(r"^[-*]\s+(.+)$", re.MULTILINE), r"<li>\1</li>"),
-    (re.compile(r"(<li>.*?</li>)", re.DOTALL), r"<ul>\1</ul>"),
-    # Consecutive </ul><ul> blocks collapse into one list
-    (re.compile(r"</ul>\s*<ul>"), ""),
-    (re.compile(r"^(?!<[hul]).+$", re.MULTILINE), r"<p>\g<0></p>"),
-    # Remove empty paragraphs
-    (re.compile(r"<p>\s*</p>"), ""),
-]
+# escape=False preserves raw HTML in the Markdown (e.g. sr-only keyword spans).
+_md_render = mistune.create_markdown(escape=False)
 
 
 def markdown_to_html(md: str) -> str:
     """
     Convert resume Markdown to a full HTML document using the resume template.
 
-    Inlines the template rather than requiring a file read at generation time.
+    Uses mistune for robust Markdown parsing (handles nested formatting, edge cases).
+    Raw HTML in the Markdown (e.g. <span class="sr-only">) passes through unchanged.
     """
-    content = md
-    for pattern, replacement in _RULES:
-        content = pattern.sub(replacement, content)
-
+    content = _md_render(md)
     template = _TEMPLATE_PATH.read_text(encoding="utf-8")
     return template.replace("{{ content }}", content)
 
