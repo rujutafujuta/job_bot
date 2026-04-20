@@ -1,4 +1,4 @@
-"""Windows Task Scheduler integration for recurring scrape jobs."""
+"""Windows Task Scheduler integration — daily 3am scrape job."""
 
 from __future__ import annotations
 
@@ -6,13 +6,13 @@ import sys
 from pathlib import Path
 
 
-def build_schtasks_command(interval_hours: int) -> str:
-    """Return a schtasks /Create command that runs the scrape phase every N hours."""
+def build_schtasks_command() -> str:
+    """Return a schtasks /Create command that runs the scrape phase daily at 3:00am."""
     root = Path(__file__).resolve().parents[2]
     py = sys.executable
     tr = f'cmd /c cd /d "{root}" && "{py}" -m src.pipeline.orchestrator --phase scrape'
     return (
-        f"schtasks /Create /SC HOURLY /MO {interval_hours}"
+        f"schtasks /Create /SC DAILY /ST 03:00"
         f' /TN "JobBot Scrape"'
         f' /TR "{tr}"'
         f" /F"

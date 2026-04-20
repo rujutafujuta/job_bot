@@ -413,9 +413,8 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
         "--schedule",
-        type=int,
-        metavar="HOURS",
-        help="Register a Windows Task Scheduler job to run --phase scrape every N hours",
+        action="store_true",
+        help="Register a Windows Task Scheduler job to run --phase scrape daily at 3am",
     )
     parser.add_argument("--db", default=str(_DEFAULT_DB))
     parser.add_argument("--profile", default=str(_DEFAULT_PROFILE))
@@ -426,10 +425,10 @@ def main() -> None:
     load_env()
     validate_env()
 
-    if args.schedule is not None:
+    if args.schedule:
         import subprocess
-        cmd = build_schtasks_command(args.schedule)
-        print(f"[orchestrator] Registering scheduled task (every {args.schedule}h)...")
+        cmd = build_schtasks_command()
+        print("[orchestrator] Registering scheduled task (daily at 3:00am)...")
         print(f"[orchestrator] {cmd}")
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
         if result.returncode == 0:
