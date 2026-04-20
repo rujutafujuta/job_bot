@@ -1,131 +1,94 @@
-"""Tests for hiring manager contact finder."""
+"""Tests for Claude-based hiring manager contact finder."""
+
+from __future__ import annotations
+
+from unittest.mock import patch
 
 import pytest
-from unittest.mock import patch, MagicMock
+
 from src.pipeline.contact_finder import (
-    find_contact,
-    _extract_domain,
-    _hunter_lookup,
-    _linkedin_search_url,
     Contact,
+    _linkedin_search_url,
+    _parse_response,
+    find_contact,
 )
 
 
-class TestExtractDomain:
-    def test_standard_domain(self):
-        assert _extract_domain("https://acme.com/jobs/123") == "acme.com"
+class TestParseResponse:
+    def test_parses_all_fields(self):
+        raw = (
+            "NAME: Jane Smith\n"
+            "TITLE: Engineering Manager\n"
+            "EMAIL: jane@acme.com\n"
+            "LINKEDIN: https://linkedin.com/in/janesmith\n"
+        )
+        contact = _parse_response(raw)
+        assert contact.found is True
+        assert contact.name == "Jane Smith"
+        assert contact.title == "Engineering Manager"
+        assert contact.email == "jane@acme.com"
+        assert contact.linkedin_url == "https://linkedin.com/in/janesmith"
 
-    def test_strips_www(self):
-        assert _extract_domain("https://www.acme.com/jobs") == "acme.com"
+    def test_not_found_returns_empty_contact(self):
+        raw = "NAME: not found\nTITLE:\nEMAIL:\nLINKEDIN:\n"
+        contact = _parse_response(raw)
+        assert contact.found is False
 
-    def test_known_ats_domain_returns_empty(self):
-        assert _extract_domain("https://boards.greenhouse.io/acme/jobs/1") == ""
+    def test_partial_fields_still_parse(self):
+        raw = "NAME: Bob Jones\nTITLE: Recruiter\nEMAIL:\nLINKEDIN:\n"
+        contact = _parse_response(raw)
+        assert contact.found is True
+        assert contact.name == "Bob Jones"
+        assert contact.email == ""
 
-    def test_lever_ats_returns_empty(self):
-        assert _extract_domain("https://jobs.lever.co/acme/role") == ""
+    def test_case_insensitive_keys(self):
+        raw = "Name: Alice\nTitle: HR\nEmail: a@b.com\nLinkedin: https://linkedin.com/in/alice"
+        contact = _parse_response(raw)
+        assert contact.found is True
+        assert contact.name == "Alice"
 
-    def test_workday_returns_empty(self):
-        assert _extract_domain("https://acme.wd1.myworkdayjobs.com/jobs") == ""
+    def test_empty_response_returns_not_found(self):
+        assert _parse_response("").found is False
 
-    def test_invalid_url_returns_empty(self):
-        assert _extract_domain("not-a-url") == ""
-
-    def test_empty_url_returns_empty(self):
-        assert _extract_domain("") == ""
-
-
-class TestHunterLookup:
-    def test_returns_contact_on_success(self):
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "data": {
-                "emails": [
-                    {
-                        "value": "hiring@acme.com",
-                        "first_name": "Alex",
-                        "last_name": "Smith",
-                        "position": "Engineering Manager",
-                    }
-                ]
-            }
-        }
-        mock_response.raise_for_status = MagicMock()
-
-        with patch("requests.get", return_value=mock_response):
-            result = _hunter_lookup("Acme Corp", "https://acme.com/jobs/1", "fake-key")
-
-        assert result.found is True
-        assert result.email == "hiring@acme.com"
-        assert result.name == "Alex Smith"
-        assert result.title == "Engineering Manager"
-
-    def test_prefers_engineering_title(self):
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "data": {
-                "emails": [
-                    {"value": "cfo@acme.com", "first_name": "Bob", "last_name": "Jones", "position": "CFO"},
-                    {"value": "eng@acme.com", "first_name": "Sam", "last_name": "Lee", "position": "Engineering Manager"},
-                ]
-            }
-        }
-        mock_response.raise_for_status = MagicMock()
-
-        with patch("requests.get", return_value=mock_response):
-            result = _hunter_lookup("Acme Corp", "https://acme.com/jobs/1", "fake-key")
-
-        assert result.email == "eng@acme.com"
-
-    def test_returns_empty_contact_on_no_emails(self):
-        mock_response = MagicMock()
-        mock_response.json.return_value = {"data": {"emails": []}}
-        mock_response.raise_for_status = MagicMock()
-
-        with patch("requests.get", return_value=mock_response):
-            result = _hunter_lookup("Acme Corp", "https://acme.com/jobs/1", "fake-key")
-
-        assert result.found is False
-
-    def test_returns_empty_on_ats_domain(self):
-        result = _hunter_lookup("Acme", "https://boards.greenhouse.io/acme/jobs/1", "fake-key")
-        assert result.found is False
-
-    def test_request_exception_returns_empty(self):
-        import requests
-        with patch("requests.get", side_effect=requests.RequestException("timeout")):
-            result = _hunter_lookup("Acme Corp", "https://acme.com/jobs/1", "fake-key")
-        assert result.found is False
+    def test_garbled_response_returns_not_found(self):
+        assert _parse_response("Sorry, I could not find anyone.").found is False
 
 
 class TestLinkedInSearchUrl:
     def test_returns_linkedin_url(self):
         url = _linkedin_search_url("Acme Corp")
         assert "linkedin.com" in url
-        assert "Acme" in url or "Acme%20Corp" in url
+
+    def test_encodes_company_name(self):
+        url = _linkedin_search_url("Acme Corp")
+        assert "Acme" in url
 
 
 class TestFindContact:
-    def test_falls_back_to_linkedin_when_no_hunter_key(self):
-        with patch.dict("os.environ", {}, clear=True):
+    def test_returns_contact_when_claude_succeeds(self):
+        raw = "NAME: Jane Smith\nTITLE: EM\nEMAIL: j@acme.com\nLINKEDIN: https://linkedin.com/in/j"
+        with patch("src.pipeline.contact_finder.run_claude", return_value=raw):
             result = find_contact("Acme Corp", "https://acme.com/jobs/1")
-
-        assert result.found is False
-        assert "linkedin.com" in result.linkedin_url
-
-    def test_uses_hunter_when_key_present(self):
-        mock_contact = Contact(name="A B", email="a@b.com", found=True)
-        with patch("src.pipeline.contact_finder._hunter_lookup", return_value=mock_contact):
-            with patch.dict("os.environ", {"HUNTER_IO_API_KEY": "key"}):
-                result = find_contact("Acme", "https://acme.com/jobs/1")
-
         assert result.found is True
-        assert result.email == "a@b.com"
+        assert result.name == "Jane Smith"
 
-    def test_falls_back_to_linkedin_when_hunter_finds_nothing(self):
-        empty = Contact()
-        with patch("src.pipeline.contact_finder._hunter_lookup", return_value=empty):
-            with patch.dict("os.environ", {"HUNTER_IO_API_KEY": "key"}):
-                result = find_contact("Acme", "https://acme.com/jobs/1")
-
+    def test_falls_back_to_linkedin_when_claude_returns_not_found(self):
+        raw = "NAME: not found\nTITLE:\nEMAIL:\nLINKEDIN:\n"
+        with patch("src.pipeline.contact_finder.run_claude", return_value=raw):
+            result = find_contact("Acme Corp", "https://acme.com/jobs/1")
         assert result.found is False
         assert "linkedin.com" in result.linkedin_url
+
+    def test_falls_back_to_linkedin_when_claude_raises(self):
+        with patch("src.pipeline.contact_finder.run_claude", side_effect=RuntimeError("timeout")):
+            result = find_contact("Acme Corp", "https://acme.com/jobs/1")
+        assert result.found is False
+        assert "linkedin.com" in result.linkedin_url
+
+    def test_claude_called_with_web_search_tool(self):
+        raw = "NAME: not found\nTITLE:\nEMAIL:\nLINKEDIN:\n"
+        with patch("src.pipeline.contact_finder.run_claude", return_value=raw) as mock_claude:
+            find_contact("Acme Corp", "https://acme.com/jobs/1")
+        call_kwargs = mock_claude.call_args
+        tools = call_kwargs[1].get("tools") or call_kwargs[0][1]
+        assert "WebSearch" in tools

@@ -1,8 +1,7 @@
-"""Cold outreach — Claude-generated email, sent via SMTP or saved as DB draft."""
+"""Cold outreach — Claude-generated draft saved to DB. User sends manually."""
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from src.scrapers.base import JobPosting
@@ -14,7 +13,6 @@ from src.tracking.db import (
     save_outreach_draft,
 )
 from src.utils.claude_runner import run_claude
-from src.utils.email_sender import send_email
 
 _DEFAULT_MAX_PER_COMPANY = 2
 _PENDING_DIR = Path("data/pending_outreach")
@@ -64,11 +62,11 @@ def send_cold_outreach(
     dry_run: bool = False,
     db_path: Path = _DEFAULT_DB,
 ) -> dict:
-    """Generate and send cold outreach. Save to DB draft if email unavailable.
+    """Generate a cold outreach draft and save it to the DB. Never sends automatically.
 
     Returns:
         Dict with keys: status (str), outreach_url (str)
-        status values: "sent" | "pending_user_input" | "skipped_cap"
+        status values: "pending_user_input" | "skipped_cap"
     """
     max_per_company = profile.get("outreach", {}).get(
         "max_per_company", _DEFAULT_MAX_PER_COMPANY
@@ -76,8 +74,8 @@ def send_cold_outreach(
     current_count = count_outreach_for_company(posting.company, db_path=db_path)
     if current_count >= max_per_company:
         print(
-            f"[outreach] Skipping {posting.company} — already sent "
-            f"{current_count}/{max_per_company} outreach messages to this company"
+            f"[outreach] Skipping {posting.company} — already have "
+            f"{current_count}/{max_per_company} drafts for this company"
         )
         return {"status": "skipped_cap", "outreach_url": ""}
 
@@ -99,7 +97,7 @@ def send_cold_outreach(
         tone=outreach_cfg.get("cold_email_tone", "friendly"),
     )
 
-    print(f"[outreach] Generating email for {posting.company}")
+    print(f"[outreach] Generating draft for {posting.company}")
     raw_email = run_claude(f"{_SYSTEM}\n\n{prompt}")
 
     subject, body = _parse_subject_body(raw_email)
@@ -107,30 +105,7 @@ def send_cold_outreach(
     if signature:
         body = f"{body}\n\n{signature}"
 
-    require_approval = profile.get("outreach", {}).get("require_approval", True)
-
-    if require_approval:
-        print(f"[outreach] require_approval=true — saving draft for {posting.company}")
-        return _save_draft(posting, contact, subject, body, dry_run, db_path)
-
-    if not contact.email:
-        return _save_draft(posting, contact, subject, body, dry_run, db_path)
-
-    print(f"[outreach] Sending to {contact.email} — {subject}")
-    try:
-        send_email(
-            to=contact.email,
-            subject=subject,
-            body=body,
-            attachments=[pdf_resume],
-            dry_run=dry_run,
-        )
-        if not dry_run:
-            _save_draft(posting, contact, subject, body, dry_run, db_path, status="sent")
-        return {"status": "sent", "outreach_url": contact.linkedin_url or ""}
-    except Exception as e:
-        print(f"[outreach] Failed to send email: {e} — saving as pending")
-        return _save_draft(posting, contact, subject, body, dry_run, db_path)
+    return _save_draft(posting, contact, subject, body, dry_run, db_path)
 
 
 def _parse_subject_body(raw: str) -> tuple[str, str]:
@@ -161,9 +136,8 @@ def _save_draft(
     body: str,
     dry_run: bool,
     db_path: Path = _DEFAULT_DB,
-    status: str = "draft",
 ) -> dict:
-    """Save outreach as a DB record."""
+    """Save outreach as a DB draft record."""
     if dry_run:
         print(f"[outreach][DRY RUN] Would save draft for {posting.company}")
         return {"status": "pending_user_input", "outreach_url": contact.linkedin_url or ""}
@@ -182,7 +156,7 @@ def _save_draft(
         body=body,
         db_path=db_path,
     )
-    print(f"[outreach] Saved draft for {posting.company}")
+    print(f"[outreach] Draft saved for {posting.company}")
     return {"status": "pending_user_input", "outreach_url": contact.linkedin_url or ""}
 
 
@@ -190,11 +164,7 @@ def migrate_pending_outreach_files(
     pending_dir: Path = _PENDING_DIR,
     db_path: Path = _DEFAULT_DB,
 ) -> int:
-    """One-time import: read .txt files in pending_dir, insert as DB drafts.
-
-    Files are renamed to .migrated after import. Skips already-migrated files.
-    Returns the number of files migrated.
-    """
+    """One-time import: read legacy .txt files, insert as DB drafts, rename to .migrated."""
     if not pending_dir.exists():
         return 0
 
@@ -222,7 +192,7 @@ def migrate_pending_outreach_files(
 
 
 def _parse_draft_file(path: Path) -> dict:
-    """Parse a pending_outreach .txt file into a structured dict."""
+    """Parse a legacy pending_outreach .txt file into a structured dict."""
     lines = path.read_text(encoding="utf-8").splitlines()
     meta: dict = {}
     body_lines: list[str] = []

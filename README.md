@@ -2,7 +2,7 @@
 
 Discovers jobs daily from 8+ sources, filters them with two-stage AI scoring, generates deep evaluation reports, tailors your resume, and prepares all application materials — before you open the app. You review, decide, and act. The bot never submits, sends, or applies on your behalf.
 
-**AI layer:** Claude Code CLI (subprocess). No Anthropic API key. One billing location.
+**AI layer:** Claude Code CLI (subprocess). No Anthropic API key. One billing location (claude code subscription)
 
 ---
 
@@ -56,7 +56,7 @@ playwright install chromium
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/yourusername/job_bot
+git clone https://github.com/rujutafujuta/job_bot
 cd job_bot
 
 python -m venv .venv
@@ -67,40 +67,46 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
-### 2. Set up your environment
+### 2. Launch the app
 
-```bash
-cp .env.example .env
-```
+Double-click **`launch.py`** (or run `python launch.py`) — that's it.
 
-Open `.env` and fill in:
+**First run:** A setup GUI appears asking for your API credentials:
 
 | Variable | Where to get it | Required |
 |---|---|---|
-| `APIFY_API_TOKEN` | apify.com → Settings → API | For LinkedIn/Indeed/Glassdoor/Google Jobs/ZipRecruiter |
-| `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` | developer.adzuna.com | For Adzuna source |
-| `HUNTER_IO_API_KEY` | hunter.io → API | Optional — contact email lookup |
-| `SMTP_USER` / `SMTP_PASSWORD` | Gmail App Password | Optional — sending outreach emails |
+| `APIFY_TOKEN` | apify.com → Settings → API Tokens | Yes — covers LinkedIn, Indeed, Glassdoor, Google Jobs, ZipRecruiter |
+| `ADZUNA_APP_ID` / `ADZUNA_API_KEY` | developer.adzuna.com | Optional — adds Adzuna source |
 
 **No `ANTHROPIC_API_KEY` needed.** All AI runs through your Claude Code subscription via the `claude` CLI.
 
-### 3. Run the onboarding wizard
+After entering credentials, a terminal opens for the profile setup wizard. Follow the prompts to create your `config/user_profile.yaml` and `data/cv.md`. When done, the dashboard opens automatically.
 
-```bash
-python -m src.setup.onboarding
+**Every subsequent run:** The launcher silently starts the server and opens your browser. A small status window lets you stop the server when you're done.
+
+### 3. Create a desktop shortcut (never touch the code again)
+
+Create a one-click shortcut so you never need to open a terminal:
+
+**Windows:**
+1. Right-click on your desktop → **New → Shortcut**
+2. Location: `C:\path\to\.venv\Scripts\pythonw.exe C:\path\to\job_bot\launch.py`
+   *(use `pythonw.exe` — no console window)*
+3. Name it **Job Bot**
+4. Right-click the shortcut → **Properties → Change Icon** → browse to any `.ico` you like
+
+**Or create a VBS wrapper** (hides all console output completely):
+
+Create `JobBot.vbs` on your desktop:
+```vbs
+Set WshShell = CreateObject("WScript.Shell")
+WshShell.Run "C:\path\to\.venv\Scripts\pythonw.exe C:\path\to\job_bot\launch.py", 0
+Set WshShell = Nothing
 ```
 
-This interactively builds your `config/user_profile.yaml` and `data/cv.md`. If you already have a CV, you can skip the CV step and copy your markdown into `data/cv.md` manually.
+Double-click `JobBot.vbs` — the setup GUI or status window appears with no terminal.
 
-### 4. Start the web app
-
-```bash
-uvicorn src.web.app:app --reload
-```
-
-Open **http://localhost:8000** — this is your dashboard.
-
-### 5. Run your first scrape
+### 4. Run your first scrape
 
 Click **Run Pipeline** on the dashboard, or run it from the terminal:
 
@@ -110,7 +116,7 @@ python -m src.pipeline.orchestrator --phase scrape
 
 This scrapes all enabled sources, scores every posting, and automatically triggers deep evaluation + resume tailoring for your best matches (95+ score). Takes a few minutes on first run.
 
-### 6. Schedule daily runs (optional)
+### 5. Schedule daily runs (optional)
 
 Register a Windows Task Scheduler job to run the pipeline automatically at 3:00am every day:
 
@@ -340,10 +346,10 @@ job_bot/
 │       ├── backup.py               ← Backup/restore zip utility
 │       ├── claude_runner.py        ← Claude Code CLI subprocess wrapper
 │       ├── config_loader.py        ← YAML + .env loading + validation
-│       ├── email_sender.py         ← Gmail SMTP sender
 │       └── scheduler.py            ← Windows Task Scheduler integration
 │
-└── tests/                          ← pytest test suite (359 tests)
+├── launch.py                       ← One-click launcher (GUI setup + server start)
+└── tests/                          ← pytest test suite (354 tests)
 ```
 
 ---

@@ -100,8 +100,6 @@ def validate_env(required: list[str] | None = None) -> None:
         "APIFY_TOKEN": "Apify scraper will be skipped (covers LinkedIn, Indeed, Glassdoor)",
         "ADZUNA_APP_ID": "Adzuna scraper will be skipped",
         "ADZUNA_API_KEY": "Adzuna scraper will be skipped",
-        "SMTP_USER": "Email sending disabled (outreach will save as drafts only)",
-        "SMTP_PASSWORD": "Email sending disabled — for Gmail use an App Password, not your account password",
     }
     for key, msg in optional_with_warnings.items():
         if not os.environ.get(key):
