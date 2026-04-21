@@ -1,4 +1,5 @@
 config/user_profile.yaml
+config/target_roles.yaml 
 data/
 cv.md
 .env
