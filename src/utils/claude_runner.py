@@ -66,6 +66,7 @@ def run_claude(
             input=prompt,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:
@@ -113,6 +114,7 @@ def stream_claude(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
     )
     if proc.stdin:
         proc.stdin.write(prompt)

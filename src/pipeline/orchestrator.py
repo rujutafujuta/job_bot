@@ -15,6 +15,13 @@ import sys
 from datetime import date
 from pathlib import Path
 
+# Reconfigure stdout/stderr to UTF-8 so scraped Unicode content (em-dashes,
+# smart quotes, CJK chars, etc.) doesn't crash print() on Windows CP1252 consoles.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 from src.pipeline.applicator import apply_to_job
 from src.pipeline.integrity_checker import run_integrity_check
 from src.pipeline.contact_finder import find_contact
