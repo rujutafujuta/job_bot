@@ -40,6 +40,7 @@ Auto-score 0 if: candidate needs sponsorship and role requires citizenship/no-sp
 Name: {name}
 Target roles: {target_roles}
 Remote preference: {remote_preference}
+Target locations: {target_locations}
 Primary skills: {primary_skills}
 Years of experience: {years_experience}
 Work authorization: {work_auth}
@@ -71,10 +72,14 @@ def score_job(posting: JobPosting, profile: dict) -> Stage1Result:
     skills = profile.get("skills", {})
     visa = profile.get("visa", {})
 
+    target_locations = target.get("locations", [])
+    locations_str = ", ".join(target_locations) if target_locations else "anywhere"
+
     prompt = _PROMPT_TEMPLATE.format(
         name=personal.get("full_name", "Candidate"),
         target_roles=", ".join(target.get("roles", [])),
         remote_preference=target.get("remote_preference", "any"),
+        target_locations=locations_str,
         primary_skills=", ".join(skills.get("primary", [])),
         years_experience=skills.get("years_experience", 0),
         work_auth=visa.get("status", "unknown"),

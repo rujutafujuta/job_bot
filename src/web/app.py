@@ -539,6 +539,37 @@ async def restore_backup_route(backup_file: UploadFile = File(...)) -> HTMLRespo
         return HTMLResponse(f'<p style="color:#f87171">Restore failed: {exc}</p>')
 
 
+@app.post("/settings/upload-cv", response_class=HTMLResponse)
+async def upload_cv_route(cv_file: UploadFile = File(...)) -> HTMLResponse:
+    """Replace data/cv.md with the uploaded Markdown file."""
+    if not cv_file.filename or not cv_file.filename.endswith(".md"):
+        return HTMLResponse('<p style="color:#f87171">Please upload a .md (Markdown) file.</p>')
+    try:
+        content = await cv_file.read()
+        _CV_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _CV_PATH.write_bytes(content)
+        import datetime
+        ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        return HTMLResponse(
+            f'<p style="color:#4ade80">CV uploaded successfully ({ts}). '
+            f"Run <em>Regenerate Roles</em> to update target_roles.yaml.</p>"
+        )
+    except Exception as exc:
+        return HTMLResponse(f'<p style="color:#f87171">Upload failed: {exc}</p>')
+
+
+@app.get("/settings/cv-status", response_class=HTMLResponse)
+async def cv_status_route() -> HTMLResponse:
+    """Return current CV status snippet for HTMX polling."""
+    if _CV_PATH.exists():
+        import datetime
+        mtime = datetime.datetime.fromtimestamp(_CV_PATH.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+        return HTMLResponse(
+            f'<span style="color:#4ade80">data/cv.md — last modified {mtime}</span>'
+        )
+    return HTMLResponse('<span style="color:#64748b">No CV uploaded yet.</span>')
+
+
 @app.post("/run")
 async def run_pipeline(request: Request) -> EventSourceResponse:
     """Trigger --phase scrape as a background subprocess and stream output via SSE."""

@@ -78,7 +78,7 @@ def score_job(posting: JobPosting, profile: dict) -> MatchResult:
         full_name=personal.get("full_name", ""),
         roles=", ".join(target.get("roles", [])),
         seniority=", ".join(target.get("seniority", [])),
-        locations=", ".join(target.get("locations", [])),
+        locations=", ".join(target.get("locations", [])) or "anywhere",
         remote_preference=target.get("remote_preference", "any"),
         requires_sponsorship=visa.get("requires_sponsorship", False),
         primary_skills=", ".join(skills.get("primary", [])),

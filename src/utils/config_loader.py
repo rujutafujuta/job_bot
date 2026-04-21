@@ -9,8 +9,8 @@ import yaml
 from dotenv import load_dotenv
 
 _REQUIRED_PERSONAL = ["full_name", "email", "phone"]
-_REQUIRED_WORK_AUTH = ["type"]
-_REQUIRED_JOB_PREFS = ["job_types", "remote_preference"]
+_REQUIRED_VISA = ["status"]
+_REQUIRED_TARGET = ["roles", "remote_preference"]
 
 
 def load_env(env_path: str | Path = ".env") -> None:

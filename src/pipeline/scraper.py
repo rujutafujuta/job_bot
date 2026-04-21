@@ -62,6 +62,7 @@ def run_scrapers(
     scraper_overrides: dict | None = None,
     db_path: Path = Path("data/tracking.db"),
     dry_run: bool = False,
+    target_locations: list[str] | None = None,
 ) -> list[JobPosting]:
     """
     Run all enabled scrapers and return jobs not yet seen in the database.
@@ -100,7 +101,10 @@ def run_scrapers(
         _t0 = time.monotonic()
         _error: str | None = None
         try:
-            postings = scraper.scrape(queries)
+            if source == "adzuna" and target_locations is not None:
+                postings = scraper.scrape(queries, target_locations=target_locations)
+            else:
+                postings = scraper.scrape(queries)
         except Exception as e:
             print(f"[scraper] {source}: error — {e}")
             _error = str(e)

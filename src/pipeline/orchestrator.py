@@ -82,7 +82,14 @@ def run_scrape_phase(
 
     # Step 2 — scrape
     print("\n[orchestrator] Phase 1: Scraping")
-    postings = run_scrapers(roles_path=roles_path, db_path=db_path, dry_run=dry_run)
+    _profile_for_scrape = load_profile(profile_path) if profile_path.exists() else {}
+    _target_locations = _profile_for_scrape.get("target", {}).get("locations", None)
+    postings = run_scrapers(
+        roles_path=roles_path,
+        db_path=db_path,
+        dry_run=dry_run,
+        target_locations=_target_locations,
+    )
     print(f"[orchestrator] {len(postings)} new postings to evaluate")
 
     if not postings:

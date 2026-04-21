@@ -21,7 +21,7 @@ class AdzunaScraper(BaseScraper):
         self._api_key = os.environ.get("ADZUNA_API_KEY", cfg.get("api_key", ""))
         self._country = cfg.get("country", _DEFAULT_COUNTRY)
 
-    def scrape(self, queries: list[str]) -> list[JobPosting]:
+    def scrape(self, queries: list[str], target_locations: list[str] | None = None) -> list[JobPosting]:
         if not self._app_id or not self._api_key:
             print("[adzuna] ADZUNA_APP_ID or ADZUNA_API_KEY not set — skipping")
             return []
@@ -41,6 +41,9 @@ class AdzunaScraper(BaseScraper):
                 "sort_by": "date",
                 "content-type": "application/json",
             }
+            # Add location if the user has specified target locations
+            if target_locations:
+                params["where"] = target_locations[0]
 
             try:
                 resp = self._get(

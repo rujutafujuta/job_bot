@@ -77,3 +77,45 @@ class TestSettingsPostRoles:
     def test_rejects_invalid_yaml(self, client):
         resp = client.post("/settings/roles", data={"content": "{{broken"})
         assert resp.status_code == 400
+
+
+class TestCvUpload:
+    def test_upload_valid_md(self, tmp_path, monkeypatch):
+        cv_path = tmp_path / "cv.md"
+        monkeypatch.setattr("src.web.app._CV_PATH", cv_path)
+        client = TestClient(app)
+        resp = client.post(
+            "/settings/upload-cv",
+            files={"cv_file": ("my_cv.md", b"# My CV\nExperience...", "text/markdown")},
+        )
+        assert resp.status_code == 200
+        assert "uploaded successfully" in resp.text
+        assert cv_path.read_bytes() == b"# My CV\nExperience..."
+
+    def test_rejects_non_md(self, tmp_path, monkeypatch):
+        cv_path = tmp_path / "cv.md"
+        monkeypatch.setattr("src.web.app._CV_PATH", cv_path)
+        client = TestClient(app)
+        resp = client.post(
+            "/settings/upload-cv",
+            files={"cv_file": ("resume.pdf", b"%PDF", "application/pdf")},
+        )
+        assert resp.status_code == 200
+        assert "Please upload a .md" in resp.text
+
+    def test_cv_status_missing(self, tmp_path, monkeypatch):
+        cv_path = tmp_path / "cv.md"
+        monkeypatch.setattr("src.web.app._CV_PATH", cv_path)
+        client = TestClient(app)
+        resp = client.get("/settings/cv-status")
+        assert resp.status_code == 200
+        assert "No CV" in resp.text
+
+    def test_cv_status_present(self, tmp_path, monkeypatch):
+        cv_path = tmp_path / "cv.md"
+        cv_path.write_text("# CV")
+        monkeypatch.setattr("src.web.app._CV_PATH", cv_path)
+        client = TestClient(app)
+        resp = client.get("/settings/cv-status")
+        assert resp.status_code == 200
+        assert "data/cv.md" in resp.text

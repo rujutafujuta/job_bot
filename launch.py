@@ -16,7 +16,7 @@ import time
 import webbrowser
 from pathlib import Path
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import filedialog, messagebox, ttk
 
 from src.utils.scheduler import build_schtasks_command
 
@@ -438,26 +438,597 @@ def _show_starting_splash() -> tk.Tk:
 
 
 # ---------------------------------------------------------------------------
+# Profile Wizard (Tkinter, Page 2 of setup)
+# ---------------------------------------------------------------------------
+
+import yaml as _yaml
+
+
+def _load_yaml_profile(path: Path) -> dict:
+    if path.exists():
+        with path.open(encoding="utf-8") as f:
+            return _yaml.safe_load(f) or {}
+    return {}
+
+
+def _save_yaml_profile(data: dict, path: Path) -> None:
+    from ruamel.yaml import YAML as _RYAML
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ryaml = _RYAML()
+    ryaml.preserve_quotes = True
+    tmp = path.with_suffix(".yaml.tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        ryaml.dump(data, f)
+    tmp.replace(path)
+
+
+class _ProfileWizardWindow:
+    """
+    Tkinter profile wizard — Page 2 of first-time setup.
+    Shown after credential entry. Outputs the canonical user_profile.yaml schema.
+    """
+
+    _BG = "#1a1a2e"
+    _CARD = "#16213e"
+    _BORDER = "#334155"
+    _FG = "#e0e0e0"
+    _FG_DIM = "#64748b"
+    _FG_HEAD = "#f8fafc"
+    _INPUT_BG = "#0f172a"
+    _INPUT_FG = "#e2e8f0"
+    _BLUE = "#2563eb"
+
+    def __init__(self) -> None:
+        self.completed = False
+
+        root = tk.Tk()
+        root.title("Job Bot — Profile Setup")
+        root.configure(bg=self._BG)
+        root.minsize(680, 500)
+        self._root = root
+
+        self._vars: dict[str, tk.Variable] = {}
+        self._build()
+        root.mainloop()
+
+    # ── layout helpers ────────────────────────────────────────────────────
+
+    def _lbl(self, parent, text: str, size=10, bold=False, dim=False) -> tk.Label:
+        weight = "bold" if bold else "normal"
+        color = self._FG_DIM if dim else (self._FG_HEAD if bold else self._FG)
+        return tk.Label(parent, text=text, bg=parent["bg"],
+                        fg=color, font=("Segoe UI", size, weight))
+
+    def _entry(self, parent, var: tk.StringVar, width=40) -> tk.Entry:
+        return tk.Entry(parent, textvariable=var, width=width,
+                        bg=self._INPUT_BG, fg=self._INPUT_FG,
+                        insertbackground="white", relief="flat",
+                        font=("Segoe UI", 10))
+
+    def _card(self, parent, title: str) -> tk.Frame:
+        frame = tk.Frame(parent, bg=self._CARD,
+                         highlightbackground=self._BORDER, highlightthickness=1)
+        frame.pack(fill="x", padx=16, pady=6)
+        tk.Label(frame, text=title, bg=self._CARD, fg=self._FG_HEAD,
+                 font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=12, pady=(10, 4))
+        return frame
+
+    def _field_row(self, parent, label: str, var: tk.StringVar, width=36) -> None:
+        row = tk.Frame(parent, bg=parent["bg"])
+        row.pack(fill="x", padx=12, pady=3)
+        tk.Label(row, text=label, bg=parent["bg"], fg=self._FG,
+                 font=("Segoe UI", 9), width=26, anchor="w").pack(side="left")
+        self._entry(row, var, width=width).pack(side="left", fill="x", expand=True, padx=(4, 0))
+
+    def _sv(self, name: str, default: str = "") -> tk.StringVar:
+        v = tk.StringVar(value=default)
+        self._vars[name] = v
+        return v
+
+    def _bv(self, name: str, default: bool = False) -> tk.BooleanVar:
+        v = tk.BooleanVar(value=default)
+        self._vars[name] = v
+        return v
+
+    # ── build UI ─────────────────────────────────────────────────────────
+
+    def _build(self) -> None:
+        ex = _load_yaml_profile(PROFILE_PATH)
+
+        # --- outer scroll container ---
+        outer = tk.Frame(self._root, bg=self._BG)
+        outer.pack(fill="both", expand=True)
+
+        canvas = tk.Canvas(outer, bg=self._BG, highlightthickness=0)
+        scroll = tk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        inner = tk.Frame(canvas, bg=self._BG)
+        canvas_window = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _on_configure(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _on_canvas_resize(event):
+            canvas.itemconfig(canvas_window, width=event.width)
+
+        inner.bind("<Configure>", _on_configure)
+        canvas.bind("<Configure>", _on_canvas_resize)
+
+        # mouse-wheel scroll
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        # --- header ---
+        tk.Label(inner, text="Job Bot", bg=self._BG, fg="#ffffff",
+                 font=("Segoe UI", 18, "bold")).pack(pady=(20, 2))
+        tk.Label(inner, text="Profile Setup — tell us about yourself",
+                 bg=self._BG, fg=self._FG_DIM, font=("Segoe UI", 10)).pack(pady=(0, 4))
+        tk.Label(inner,
+                 text="All fields are optional. Press Skip to fill in later via Dashboard → Settings.",
+                 bg=self._BG, fg="#f59e0b", font=("Segoe UI", 9)).pack(pady=(0, 12))
+
+        # --- sections ---
+        self._build_personal(inner, ex)
+        self._build_visa(inner, ex)
+        self._build_job_prefs(inner, ex)
+        self._build_locations(inner, ex)
+        self._build_roles(inner, ex)
+        self._build_skills(inner, ex)
+        self._build_cover_letter(inner, ex)
+        self._build_exclusions_network(inner, ex)
+        self._build_cv_upload(inner, ex)
+
+        # --- buttons ---
+        btn_frame = tk.Frame(inner, bg=self._BG)
+        btn_frame.pack(fill="x", padx=16, pady=(12, 24))
+        tk.Button(btn_frame, text="Save & Continue →", command=self._on_save,
+                  bg=self._BLUE, fg="white", activebackground="#1d4ed8",
+                  font=("Segoe UI", 11, "bold"), relief="flat",
+                  padx=20, pady=8, cursor="hand2").pack(side="right")
+        tk.Button(btn_frame, text="Skip for now", command=self._on_skip,
+                  bg="#374151", fg="#9ca3af", activebackground="#4b5563",
+                  font=("Segoe UI", 10), relief="flat",
+                  padx=12, pady=8, cursor="hand2").pack(side="right", padx=(0, 8))
+
+    # ── section builders ─────────────────────────────────────────────────
+
+    def _build_personal(self, parent: tk.Frame, ex: dict) -> None:
+        p = ex.get("personal", {})
+        card = self._card(parent, "1. Personal Information")
+        self._field_row(card, "Full name", self._sv("p_full_name", p.get("full_name", "")))
+        self._field_row(card, "Email", self._sv("p_email", p.get("email", "")))
+        self._field_row(card, "Phone", self._sv("p_phone", p.get("phone", "")))
+        self._field_row(card, "City", self._sv("p_city", p.get("city", "")))
+        self._field_row(card, "State / Province", self._sv("p_state", p.get("state", "")))
+        self._field_row(card, "Country", self._sv("p_country", p.get("country", "US")))
+        self._field_row(card, "LinkedIn URL", self._sv("p_linkedin", p.get("linkedin_url", "")))
+        self._field_row(card, "GitHub URL (optional)", self._sv("p_github", p.get("github_url", "")))
+        self._field_row(card, "Portfolio URL (optional)", self._sv("p_portfolio", p.get("portfolio_url", "")))
+        tk.Frame(card, bg=self._CARD, height=8).pack()
+
+    def _build_visa(self, parent: tk.Frame, ex: dict) -> None:
+        v = ex.get("visa", {})
+        card = self._card(parent, "2. Work Authorization")
+
+        status_options = ["US Citizen", "Green Card", "H1B", "OPT", "CPT", "TN", "Need Sponsorship", "Other"]
+        self._visa_status = tk.StringVar(value=v.get("status", "US Citizen"))
+        self._vars["visa_status"] = self._visa_status
+
+        row = tk.Frame(card, bg=self._CARD)
+        row.pack(fill="x", padx=12, pady=4)
+        tk.Label(row, text="Authorization type:", bg=self._CARD, fg=self._FG,
+                 font=("Segoe UI", 9)).pack(anchor="w")
+        rb_frame = tk.Frame(row, bg=self._CARD)
+        rb_frame.pack(anchor="w", pady=2)
+        for opt in status_options:
+            tk.Radiobutton(rb_frame, text=opt, variable=self._visa_status, value=opt,
+                           bg=self._CARD, fg=self._FG, selectcolor=self._INPUT_BG,
+                           activebackground=self._CARD, font=("Segoe UI", 9)).pack(side="left", padx=4)
+
+        expiry_row = tk.Frame(card, bg=self._CARD)
+        expiry_row.pack(fill="x", padx=12, pady=(4, 8))
+        tk.Label(expiry_row, text="Expiry date (YYYY-MM-DD, OPT/CPT/H1B/TN only):",
+                 bg=self._CARD, fg=self._FG, font=("Segoe UI", 9)).pack(side="left")
+        self._entry(expiry_row, self._sv("visa_expiry", v.get("work_auth_expiry", "")), width=18).pack(
+            side="left", padx=(6, 0))
+
+    def _build_job_prefs(self, parent: tk.Frame, ex: dict) -> None:
+        t = ex.get("target", {})
+        emp = ex.get("employment", {})
+        card = self._card(parent, "3. Job Preferences")
+
+        # job_type checkboxes
+        tk.Label(card, text="Job type:", bg=self._CARD, fg=self._FG,
+                 font=("Segoe UI", 9)).pack(anchor="w", padx=12, pady=(4, 0))
+        jt_row = tk.Frame(card, bg=self._CARD)
+        jt_row.pack(anchor="w", padx=12, pady=2)
+        existing_jt = t.get("job_type", ["full-time"])
+        for jt in ["full-time", "part-time", "contract", "internship"]:
+            v = self._bv(f"jt_{jt}", jt in existing_jt)
+            tk.Checkbutton(jt_row, text=jt, variable=v, bg=self._CARD, fg=self._FG,
+                           selectcolor=self._INPUT_BG, activebackground=self._CARD,
+                           font=("Segoe UI", 9)).pack(side="left", padx=4)
+
+        # remote_preference checkboxes
+        tk.Label(card, text="Remote preference (check all that apply):", bg=self._CARD, fg=self._FG,
+                 font=("Segoe UI", 9)).pack(anchor="w", padx=12, pady=(8, 0))
+        rp_row = tk.Frame(card, bg=self._CARD)
+        rp_row.pack(anchor="w", padx=12, pady=2)
+        existing_rp = t.get("remote_preference", "")
+        for rp in ["remote", "hybrid", "onsite"]:
+            checked = (existing_rp in (rp, "any") or rp in str(existing_rp))
+            v = self._bv(f"rp_{rp}", checked)
+            tk.Checkbutton(rp_row, text=rp, variable=v, bg=self._CARD, fg=self._FG,
+                           selectcolor=self._INPUT_BG, activebackground=self._CARD,
+                           font=("Segoe UI", 9)).pack(side="left", padx=4)
+
+        # willing_to_relocate
+        rel_row = tk.Frame(card, bg=self._CARD)
+        rel_row.pack(fill="x", padx=12, pady=4)
+        tk.Label(rel_row, text="Willing to relocate?", bg=self._CARD, fg=self._FG,
+                 font=("Segoe UI", 9)).pack(side="left")
+        self._relocate = self._bv("relocate", t.get("willing_to_relocate", False))
+        for lbl, val in [("Yes", True), ("No", False)]:
+            tk.Radiobutton(rel_row, text=lbl, variable=self._relocate, value=val,
+                           bg=self._CARD, fg=self._FG, selectcolor=self._INPUT_BG,
+                           activebackground=self._CARD, font=("Segoe UI", 9)).pack(side="left", padx=6)
+
+        # company_size checkboxes
+        tk.Label(card, text="Company size:", bg=self._CARD, fg=self._FG,
+                 font=("Segoe UI", 9)).pack(anchor="w", padx=12, pady=(8, 0))
+        cs_row = tk.Frame(card, bg=self._CARD)
+        cs_row.pack(anchor="w", padx=12, pady=2)
+        existing_cs = t.get("company_size", ["any"])
+        for cs in ["startup", "mid-size", "enterprise"]:
+            checked = "any" in existing_cs or cs in existing_cs or cs.replace("-", "") in existing_cs
+            v = self._bv(f"cs_{cs}", checked)
+            tk.Checkbutton(cs_row, text=cs, variable=v, bg=self._CARD, fg=self._FG,
+                           selectcolor=self._INPUT_BG, activebackground=self._CARD,
+                           font=("Segoe UI", 9)).pack(side="left", padx=4)
+
+        # salary + employment
+        self._field_row(card, "Min salary (USD/year)", self._sv("salary_min", str(t.get("salary_min", "") or "")))
+        self._field_row(card, "Notice period (days)", self._sv("notice_days", str(emp.get("notice_period_days", "0"))))
+        self._field_row(card, "Earliest start date", self._sv("earliest_start", emp.get("earliest_start_date", "immediately")))
+        tk.Frame(card, bg=self._CARD, height=8).pack()
+
+    def _build_locations(self, parent: tk.Frame, ex: dict) -> None:
+        t = ex.get("target", {})
+        card = self._card(parent, "4. Target Locations")
+
+        tk.Label(card, text="Leave empty or check 'Anywhere' to search nationally.",
+                 bg=self._CARD, fg=self._FG_DIM, font=("Segoe UI", 9)).pack(anchor="w", padx=12)
+
+        self._anywhere = self._bv("anywhere", len(t.get("locations", [])) == 0)
+
+        cb = tk.Checkbutton(card, text="Anywhere in country (national search)",
+                            variable=self._anywhere,
+                            command=self._toggle_locations,
+                            bg=self._CARD, fg=self._FG, selectcolor=self._INPUT_BG,
+                            activebackground=self._CARD, font=("Segoe UI", 9))
+        cb.pack(anchor="w", padx=12, pady=4)
+
+        locs_frame = tk.Frame(card, bg=self._CARD)
+        locs_frame.pack(fill="x", padx=12, pady=(0, 8))
+        tk.Label(locs_frame, text="Locations (one per line):",
+                 bg=self._CARD, fg=self._FG, font=("Segoe UI", 9)).pack(anchor="w")
+        self._locations_text = tk.Text(locs_frame, height=4, width=50,
+                                       bg=self._INPUT_BG, fg=self._INPUT_FG,
+                                       insertbackground="white", relief="flat",
+                                       font=("Segoe UI", 9))
+        self._locations_text.pack(fill="x", pady=2)
+        existing_locs = t.get("locations", [])
+        if existing_locs:
+            self._locations_text.insert("1.0", "\n".join(existing_locs))
+        self._locs_frame = locs_frame
+        self._toggle_locations()
+
+    def _toggle_locations(self) -> None:
+        state = "disabled" if self._anywhere.get() else "normal"
+        self._locations_text.configure(state=state)
+
+    def _build_roles(self, parent: tk.Frame, ex: dict) -> None:
+        t = ex.get("target", {})
+        card = self._card(parent, "5. Target Roles")
+
+        tk.Label(card, text="Job titles you're targeting (one per line):",
+                 bg=self._CARD, fg=self._FG, font=("Segoe UI", 9)).pack(anchor="w", padx=12)
+        self._roles_text = tk.Text(card, height=4, width=50,
+                                   bg=self._INPUT_BG, fg=self._INPUT_FG,
+                                   insertbackground="white", relief="flat",
+                                   font=("Segoe UI", 9))
+        self._roles_text.pack(fill="x", padx=12, pady=4)
+        existing_roles = t.get("roles", [])
+        if existing_roles:
+            self._roles_text.insert("1.0", "\n".join(existing_roles))
+
+        tk.Label(card, text="Seniority levels:", bg=self._CARD, fg=self._FG,
+                 font=("Segoe UI", 9)).pack(anchor="w", padx=12, pady=(8, 0))
+        sen_row = tk.Frame(card, bg=self._CARD)
+        sen_row.pack(anchor="w", padx=12, pady=(2, 8))
+        existing_sen = t.get("seniority", [])
+        for s in ["junior", "mid", "senior", "staff", "principal"]:
+            v = self._bv(f"sen_{s}", s in existing_sen)
+            tk.Checkbutton(sen_row, text=s, variable=v, bg=self._CARD, fg=self._FG,
+                           selectcolor=self._INPUT_BG, activebackground=self._CARD,
+                           font=("Segoe UI", 9)).pack(side="left", padx=4)
+
+    def _build_skills(self, parent: tk.Frame, ex: dict) -> None:
+        s = ex.get("skills", {})
+        edu = s.get("education", {})
+        card = self._card(parent, "6. Education & Experience")
+        self._field_row(card, "Years of experience", self._sv("years_exp", str(s.get("years_experience", "") or "")))
+        self._field_row(card, "Degree + field", self._sv("edu_degree", edu.get("degree", "")))
+        self._field_row(card, "University", self._sv("edu_school", edu.get("school", "")))
+        self._field_row(card, "Graduation year", self._sv("edu_grad_year", str(edu.get("graduation_year", "") or "")))
+        tk.Frame(card, bg=self._CARD, height=8).pack()
+
+    def _build_cover_letter(self, parent: tk.Frame, ex: dict) -> None:
+        c = ex.get("cover_letter_context", {})
+        card = self._card(parent, "7. Cover Letter Context")
+        tk.Label(card, text="These help Claude write personalized cover letters.",
+                 bg=self._CARD, fg=self._FG_DIM, font=("Segoe UI", 9)).pack(anchor="w", padx=12)
+
+        questions = [
+            ("cl_goals",         "Career goals (next 2–3 years)"),
+            ("cl_motivation",    "What motivates you most?"),
+            ("cl_environment",   "Ideal work environment"),
+            ("cl_strengths",     "Strongest professional strengths"),
+            ("cl_impact",        "Impact you want in your next role"),
+            ("cl_context",       "Background context (gaps, career switches)"),
+            ("cl_industries",    "Industries / problem spaces that excite you"),
+            ("cl_always_convey", "Things to always convey (or never mention)"),
+        ]
+        cl_keys = {
+            "cl_goals": "goals", "cl_motivation": "motivation",
+            "cl_environment": "environment", "cl_strengths": "strengths",
+            "cl_impact": "impact", "cl_context": "context",
+            "cl_industries": "industries", "cl_always_convey": "always_convey",
+        }
+        self._cl_texts: dict[str, tk.Text] = {}
+        for var_key, label in questions:
+            f = tk.Frame(card, bg=self._CARD)
+            f.pack(fill="x", padx=12, pady=3)
+            tk.Label(f, text=label, bg=self._CARD, fg=self._FG,
+                     font=("Segoe UI", 9)).pack(anchor="w")
+            txt = tk.Text(f, height=2, width=60,
+                          bg=self._INPUT_BG, fg=self._INPUT_FG,
+                          insertbackground="white", relief="flat",
+                          font=("Segoe UI", 9), wrap="word")
+            txt.pack(fill="x", pady=2)
+            profile_key = cl_keys[var_key]
+            existing_val = c.get(profile_key, "")
+            if existing_val:
+                txt.insert("1.0", existing_val)
+            self._cl_texts[var_key] = txt
+        tk.Frame(card, bg=self._CARD, height=8).pack()
+
+    def _build_exclusions_network(self, parent: tk.Frame, ex: dict) -> None:
+        t = ex.get("target", {})
+        n = ex.get("network", {})
+        card = self._card(parent, "8. Exclusions & Network")
+
+        self._field_row(card, "Industries to avoid (comma-separated)",
+                        self._sv("industries_excl", ", ".join(t.get("industries_excluded", []))))
+        self._field_row(card, "Companies to never apply to (comma-separated)",
+                        self._sv("companies_excl", ", ".join(t.get("companies_excluded", []))))
+
+        csv_row = tk.Frame(card, bg=self._CARD)
+        csv_row.pack(fill="x", padx=12, pady=4)
+        tk.Label(csv_row, text="LinkedIn connections CSV:", bg=self._CARD, fg=self._FG,
+                 font=("Segoe UI", 9)).pack(side="left")
+        self._csv_var = self._sv("linkedin_csv", n.get("linkedin_csv_path", ""))
+        self._entry(csv_row, self._csv_var, width=28).pack(side="left", padx=(6, 4))
+        tk.Button(csv_row, text="Browse", command=self._browse_csv,
+                  bg="#374151", fg=self._FG, relief="flat",
+                  font=("Segoe UI", 9), padx=8, cursor="hand2").pack(side="left")
+        tk.Frame(card, bg=self._CARD, height=8).pack()
+
+    def _build_cv_upload(self, parent: tk.Frame, ex: dict) -> None:
+        card = self._card(parent, "9. CV / Resume Upload")
+        tk.Label(card, text="Upload your CV as a Markdown (.md) file.",
+                 bg=self._CARD, fg=self._FG, font=("Segoe UI", 9)).pack(anchor="w", padx=12, pady=(4, 0))
+
+        cv_path = ROOT / "data" / "cv.md"
+        status_text = f"Current: {cv_path} (exists)" if cv_path.exists() else "No CV uploaded yet."
+        self._cv_status_lbl = tk.Label(card, text=status_text, bg=self._CARD,
+                                       fg=self._FG_DIM, font=("Segoe UI", 9))
+        self._cv_status_lbl.pack(anchor="w", padx=12)
+
+        cv_row = tk.Frame(card, bg=self._CARD)
+        cv_row.pack(fill="x", padx=12, pady=4)
+        self._cv_var = self._sv("cv_path", "")
+        self._entry(cv_row, self._cv_var, width=32).pack(side="left", padx=(0, 4))
+        tk.Button(cv_row, text="Browse", command=self._browse_cv,
+                  bg="#374151", fg=self._FG, relief="flat",
+                  font=("Segoe UI", 9), padx=8, cursor="hand2").pack(side="left")
+
+        tk.Label(card, text="Skip for now — you can upload later via Dashboard → Settings.",
+                 bg=self._CARD, fg=self._FG_DIM, font=("Segoe UI", 8)).pack(anchor="w", padx=12, pady=(0, 8))
+
+    # ── file pickers ──────────────────────────────────────────────────────
+
+    def _browse_csv(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Select LinkedIn Connections CSV",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+        )
+        if path:
+            self._csv_var.set(path)
+
+    def _browse_cv(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Select CV / Resume (.md file)",
+            filetypes=[("Markdown files", "*.md"), ("All files", "*.*")],
+        )
+        if path:
+            self._cv_var.set(path)
+
+    # ── save / skip ───────────────────────────────────────────────────────
+
+    def _on_skip(self) -> None:
+        self.completed = True
+        self._root.destroy()
+
+    def _on_save(self) -> None:
+        profile = self._collect()
+        _save_yaml_profile(profile, PROFILE_PATH)
+
+        # Copy CV if one was selected
+        cv_src = self._cv_var.get().strip()
+        if cv_src:
+            import shutil as _shutil
+            cv_dst = ROOT / "data" / "cv.md"
+            cv_dst.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                _shutil.copy2(cv_src, cv_dst)
+            except Exception as exc:
+                messagebox.showwarning("CV Copy Failed",
+                                       f"Could not copy CV: {exc}\n\nYou can copy it manually to data/cv.md")
+
+        self.completed = True
+        self._root.destroy()
+
+    def _collect(self) -> dict:
+        g = self._vars  # shorthand
+
+        def sv(k: str) -> str:
+            v = g.get(k)
+            return v.get().strip() if v else ""
+
+        def bv(k: str) -> bool:
+            v = g.get(k)
+            return bool(v.get()) if v else False
+
+        def checked_list(prefix: str, options: list[str]) -> list[str]:
+            return [o for o in options if bv(f"{prefix}{o}")]
+
+        # --- visa ---
+        visa_status = sv("visa_status")
+        visa = {
+            "status": visa_status,
+            "requires_sponsorship": visa_status == "Need Sponsorship",
+            "authorized_to_work": True,
+            "work_auth_expiry": sv("visa_expiry"),
+        }
+
+        # --- job types ---
+        job_type = checked_list("jt_", ["full-time", "part-time", "contract", "internship"])
+
+        # --- remote preference ---
+        rp_checked = [rp for rp in ["remote", "hybrid", "onsite"] if bv(f"rp_{rp}")]
+        if len(rp_checked) == 3:
+            remote_preference = "any"
+        elif len(rp_checked) == 1:
+            remote_preference = rp_checked[0]
+        else:
+            remote_preference = rp_checked if rp_checked else "any"
+
+        # --- locations ---
+        if bv("anywhere"):
+            locations: list[str] = []
+        else:
+            raw_locs = self._locations_text.get("1.0", "end").strip()
+            locations = [l.strip() for l in raw_locs.splitlines() if l.strip()]
+
+        # --- roles ---
+        raw_roles = self._roles_text.get("1.0", "end").strip()
+        roles = [r.strip() for r in raw_roles.splitlines() if r.strip()]
+
+        # --- seniority ---
+        seniority = checked_list("sen_", ["junior", "mid", "senior", "staff", "principal"])
+
+        # --- company size ---
+        cs_raw = checked_list("cs_", ["startup", "mid-size", "enterprise"])
+        company_size = cs_raw if cs_raw else ["any"]
+
+        # --- salary ---
+        sal_raw = sv("salary_min")
+        salary_min = int(sal_raw) if sal_raw.isdigit() else (int(sal_raw) if sal_raw.lstrip("-").isdigit() else 0)
+
+        # --- employment ---
+        nd_raw = sv("notice_days")
+        notice_days = int(nd_raw) if nd_raw.isdigit() else 0
+
+        # --- exclusions ---
+        def _csv_list(key: str) -> list[str]:
+            return [x.strip() for x in sv(key).split(",") if x.strip()]
+
+        # --- cover letter ---
+        cl_keys = {
+            "cl_goals": "goals", "cl_motivation": "motivation",
+            "cl_environment": "environment", "cl_strengths": "strengths",
+            "cl_impact": "impact", "cl_context": "context",
+            "cl_industries": "industries", "cl_always_convey": "always_convey",
+        }
+        cover_letter_context = {
+            profile_key: self._cl_texts[var_key].get("1.0", "end").strip()
+            for var_key, profile_key in cl_keys.items()
+        }
+
+        existing = _load_yaml_profile(PROFILE_PATH)
+
+        return {
+            "personal": {
+                "full_name": sv("p_full_name"),
+                "email": sv("p_email"),
+                "phone": sv("p_phone"),
+                "city": sv("p_city"),
+                "state": sv("p_state"),
+                "country": sv("p_country") or "US",
+                "linkedin_url": sv("p_linkedin"),
+                "github_url": sv("p_github"),
+                "portfolio_url": sv("p_portfolio"),
+            },
+            "visa": visa,
+            "employment": {
+                "notice_period_days": notice_days,
+                "earliest_start_date": sv("earliest_start") or "immediately",
+            },
+            "target": {
+                "roles": roles,
+                "seniority": seniority,
+                "job_type": job_type or ["full-time"],
+                "remote_preference": remote_preference,
+                "willing_to_relocate": bv("relocate"),
+                "locations": locations,
+                "salary_min": salary_min,
+                "company_size": company_size,
+                "industries_excluded": _csv_list("industries_excl"),
+                "companies_excluded": _csv_list("companies_excl"),
+            },
+            "skills": {
+                "years_experience": int(sv("years_exp")) if sv("years_exp").isdigit() else 0,
+                "education": {
+                    "degree": sv("edu_degree"),
+                    "school": sv("edu_school"),
+                    "graduation_year": sv("edu_grad_year"),
+                },
+                "primary": existing.get("skills", {}).get("primary", []),
+                "secondary": existing.get("skills", {}).get("secondary", []),
+                "certifications": existing.get("skills", {}).get("certifications", []),
+            },
+            "cover_letter_context": cover_letter_context,
+            "network": {
+                "linkedin_csv_path": sv("linkedin_csv"),
+                "manual_contacts": existing.get("network", {}).get("manual_contacts", []),
+            },
+            "learned_answers": existing.get("learned_answers", {}),
+        }
+
+
+# ---------------------------------------------------------------------------
 # Onboarding
 # ---------------------------------------------------------------------------
 
 def _run_onboarding() -> bool:
-    """Run the profile setup wizard in a visible terminal. Returns True if completed."""
-    messagebox.showinfo(
-        "Profile Setup",
-        "A terminal window will open for profile setup.\n\n"
-        "Follow the prompts to enter your name, target salary, preferences, and roles.\n\n"
-        "Job Bot will start automatically when you finish.",
-    )
-    proc = subprocess.Popen(
-        ["cmd", "/k",
-         f'"{PYTHON}" -m src.setup.onboarding && echo. && echo Setup complete — you can close this window. && pause'],
-        cwd=str(ROOT),
-        creationflags=subprocess.CREATE_NEW_CONSOLE,
-    )
-    proc.wait()
-    return PROFILE_PATH.exists()
-
+    """Show the Tkinter profile wizard. Returns True if user completed or skipped."""
+    wizard = _ProfileWizardWindow()
+    return wizard.completed
 
 # ---------------------------------------------------------------------------
 # Main

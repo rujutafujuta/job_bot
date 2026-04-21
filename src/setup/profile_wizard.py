@@ -134,59 +134,115 @@ def _personal(ex: dict) -> dict:
     }
 
 
-def _work_auth(ex: dict) -> dict:
+def _visa(ex: dict) -> dict:
+    """Work authorization — outputs canonical visa.* keys."""
     _section("Work Authorization", 2, _TOTAL)
-    w = ex.get("work_auth", {})
+    v = ex.get("visa", {})
     auth_type = _ask_menu(
         "Authorization type:",
-        ["US Citizen", "Green Card", "H1B", "OPT", "CPT", "TN", "Need sponsorship", "Other"],
-        default=w.get("type", "OPT"),
+        ["US Citizen", "Green Card", "H1B", "OPT", "CPT", "TN", "Need Sponsorship", "Other"],
+        default=v.get("status", "OPT"),
     )
     expiry = ""
     if auth_type in ("OPT", "CPT", "H1B", "TN"):
-        expiry = _ask("Expiry date (YYYY-MM-DD, leave blank if N/A)", w.get("expiry", ""))
-    return {"type": auth_type, "expiry": expiry}
-
-
-def _job_prefs(ex: dict) -> dict:
-    _section("Job Preferences", 3, _TOTAL)
-    j = ex.get("job_preferences", {})
-
-    job_types = _ask_list(
-        "Job types wanted",
-        j.get("job_types", ["full-time"]),
-    )
-    remote_pref = _ask_menu(
-        "Remote preference:",
-        ["remote only", "hybrid ok", "open to onsite"],
-        default=j.get("remote_preference", "remote only"),
-    )
-    relocate = _ask_bool("Willing to relocate?", j.get("willing_to_relocate", False))
-    locations = []
-    if relocate or remote_pref != "remote only":
-        locations = _ask_list("Target locations", j.get("target_locations", []))
-    min_salary = _ask("Minimum acceptable salary (USD/year)", j.get("min_salary_usd", ""))
-    start_date = _ask("Available start date (YYYY-MM-DD or 'immediately')", j.get("start_date", "immediately"))
-    notice    = _ask("Notice period (e.g. '2 weeks', '0')", j.get("notice_period", "0"))
-
+        expiry = _ask("Expiry date (YYYY-MM-DD, leave blank if N/A)", v.get("work_auth_expiry", ""))
+    requires_sponsorship = auth_type == "Need Sponsorship"
     return {
-        "job_types":         job_types,
-        "remote_preference": remote_pref,
-        "willing_to_relocate": relocate,
-        "target_locations":  locations,
-        "min_salary_usd":    int(min_salary) if str(min_salary).isdigit() else min_salary,
-        "start_date":        start_date,
-        "notice_period":     notice,
+        "status": auth_type,
+        "requires_sponsorship": requires_sponsorship,
+        "authorized_to_work": True,
+        "work_auth_expiry": expiry,
     }
 
 
-def _education(ex: dict) -> dict:
-    _section("Education", 4, _TOTAL)
-    e = ex.get("education", {})
+def _target_and_employment(ex: dict) -> tuple[dict, dict]:
+    """Job preferences + employment — outputs canonical target.* and employment.* keys."""
+    _section("Job Preferences", 3, _TOTAL)
+    t = ex.get("target", {})
+    emp = ex.get("employment", {})
+
+    # --- target.roles (was entirely missing) ---
+    roles = _ask_list(
+        "Target job titles (e.g. Software Engineer, ML Engineer)",
+        t.get("roles", []),
+    )
+    seniority = _ask_list(
+        "Seniority levels (e.g. mid, senior, staff)",
+        t.get("seniority", ["mid", "senior"]),
+    )
+
+    job_type = _ask_list(
+        "Job types wanted (e.g. full-time, contract)",
+        t.get("job_type", ["full-time"]),
+    )
+    remote_pref = _ask_menu(
+        "Remote preference:",
+        ["remote", "hybrid", "onsite", "any"],
+        default=t.get("remote_preference", "remote"),
+    )
+    relocate = _ask_bool("Willing to relocate?", t.get("willing_to_relocate", False))
+
+    print(dim("  Leave blank to search anywhere in the country (no location filter)."))
+    locations = _ask_list("Target locations (e.g. San Francisco CA, New York NY)", t.get("locations", []))
+
+    salary_min_raw = _ask("Minimum acceptable salary (USD/year)", t.get("salary_min", ""))
+    salary_min = int(salary_min_raw) if str(salary_min_raw).isdigit() else (salary_min_raw or 0)
+
+    company_size = _ask_list(
+        "Company sizes (startup, mid, enterprise — or leave blank for any)",
+        t.get("company_size", []),
+    )
+
+    industries_excluded = _ask_list(
+        "Industries to avoid (e.g. gambling, defense)",
+        t.get("industries_excluded", []),
+    )
+
+    notice_raw = _ask("Notice period in days (0 if not currently employed)", emp.get("notice_period_days", 0))
+    notice_days = int(notice_raw) if str(notice_raw).isdigit() else 0
+    earliest_start = _ask("Earliest start date (YYYY-MM-DD or 'immediately')", emp.get("earliest_start_date", "immediately"))
+
+    target = {
+        "roles": roles,
+        "seniority": seniority,
+        "job_type": job_type,
+        "remote_preference": remote_pref,
+        "willing_to_relocate": relocate,
+        "locations": locations,
+        "salary_min": salary_min,
+        "company_size": company_size or ["any"],
+        "industries_excluded": industries_excluded,
+    }
+    employment = {
+        "notice_period_days": notice_days,
+        "earliest_start_date": earliest_start,
+    }
+    return target, employment
+
+
+def _skills(ex: dict) -> dict:
+    """Education + experience — outputs canonical skills.* keys."""
+    _section("Education & Experience", 4, _TOTAL)
+    s = ex.get("skills", {})
+    edu = s.get("education", {})
+
+    years_raw = _ask("Years of professional experience", s.get("years_experience", ""))
+    years = int(years_raw) if str(years_raw).isdigit() else (years_raw or 0)
+
+    degree = _ask("Highest degree + field (e.g. BS Computer Science)", edu.get("degree", ""))
+    school = _ask("University name",    edu.get("school", ""))
+    grad_year = _ask("Graduation year", edu.get("graduation_year", ""))
+
     return {
-        "degree":          _ask("Highest degree + field (e.g. BS Computer Science)", e.get("degree", "")),
-        "university":      _ask("University name",    e.get("university", "")),
-        "graduation_year": _ask("Graduation year",    e.get("graduation_year", "")),
+        "years_experience": years,
+        "education": {
+            "degree": degree,
+            "school": school,
+            "graduation_year": grad_year,
+        },
+        "primary": s.get("primary", []),
+        "secondary": s.get("secondary", []),
+        "certifications": s.get("certifications", []),
     }
 
 
@@ -214,16 +270,9 @@ def _cover_letter_context(ex: dict) -> dict:
     return result
 
 
-def _exclusions(ex: dict) -> dict:
-    _section("Exclusions", 6, _TOTAL)
-    e = ex.get("exclusions", {})
-    companies  = _ask_list("Companies to never apply to", e.get("companies", []))
-    industries = _ask_list("Industries to avoid",         e.get("industries", []))
-    return {"companies": companies, "industries": industries}
-
-
-def _network_setup(ex: dict) -> dict:
-    _section("Network Setup (LinkedIn Contacts)", 7, _TOTAL)
+def _exclusions_and_network(ex: dict) -> tuple[dict, dict]:
+    """Exclusions folded into target; network section."""
+    _section("Network Setup (LinkedIn Contacts)", 6, _TOTAL)
     print(dim("  The bot checks if you know anyone at a company and flags it in evaluations."))
     print()
     print("  To export your LinkedIn connections:")
@@ -243,10 +292,20 @@ def _network_setup(ex: dict) -> dict:
             manual_contacts.append({"name": name, "company": company, "title": title})
         add_manual = _ask_bool("Add another?", default=False)
 
-    return {
+    network = {
         "linkedin_csv_path": csv_path,
         "manual_contacts":   manual_contacts,
     }
+
+    # companies exclusion (was in separate _exclusions section)
+    _section("Company Exclusions", 7, _TOTAL)
+    e = ex.get("exclusions", ex.get("target", {}))
+    companies_excluded = _ask_list(
+        "Companies to never apply to (leave blank if none)",
+        e.get("companies", []) if "companies" in e else [],
+    )
+
+    return network, companies_excluded
 
 
 def _task_scheduler_setup() -> None:
@@ -259,7 +318,6 @@ def _task_scheduler_setup() -> None:
         return
 
     python_exe = sys.executable
-    script_dir = str(Path.cwd())
     task_name  = "JobBotDailyPipeline"
 
     cmd = [
@@ -268,7 +326,7 @@ def _task_scheduler_setup() -> None:
         "/sc", "daily",
         "/st", "03:00",
         "/sd", "01/01/2026",
-        "/f",   # overwrite if exists
+        "/f",
         "/rl",  "HIGHEST",
     ]
 
@@ -293,23 +351,33 @@ def run_wizard(
     print(bold(cyan("=" * 72)))
     print(bold(cyan("  JOB BOT SETUP WIZARD")))
     print(bold(cyan("=" * 72)))
-    print()
-    print(dim("  Press Enter to keep existing values shown in [brackets]."))
+
+    print(yellow("\n  [NOTE] All fields below are OPTIONAL."))
+    print(dim("  If you're not sure, just press Enter to skip."))
+    print(dim("  You can change these anytime in Dashboard -> Settings.\n"))
+    print(dim("  Press Enter to keep existing default values shown in [brackets]."))
     print(dim("  Press Ctrl+C at any time to cancel without saving."))
+    print()
 
     existing = _load_yaml(profile_path)
     if existing:
         print()
         print(green(f"  Existing profile found at {profile_path}"))
 
+    target, employment = _target_and_employment(existing)
+    network, companies_excluded = _exclusions_and_network(existing)
+
+    # Merge companies_excluded into target
+    target["companies_excluded"] = companies_excluded
+
     profile = {
         "personal":             _personal(existing),
-        "work_auth":            _work_auth(existing),
-        "job_preferences":      _job_prefs(existing),
-        "education":            _education(existing),
+        "visa":                 _visa(existing),
+        "employment":           employment,
+        "target":               target,
+        "skills":               _skills(existing),
         "cover_letter_context": _cover_letter_context(existing),
-        "exclusions":           _exclusions(existing),
-        "network":              _network_setup(existing),
+        "network":              network,
         "learned_answers":      existing.get("learned_answers", {}),
     }
 
