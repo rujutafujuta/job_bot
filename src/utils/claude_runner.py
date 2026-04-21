@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import threading
 from collections.abc import Iterator
@@ -9,6 +10,26 @@ from collections.abc import Iterator
 
 class ClaudeRunError(RuntimeError):
     """Raised when the claude CLI exits non-zero or times out."""
+
+
+def _find_claude() -> str:
+    """
+    Resolve the full path to the claude CLI executable.
+
+    On Windows, npm installs claude as claude.CMD which subprocess cannot
+    find by bare name without shell=True. shutil.which resolves the full
+    path including extension, making the subprocess call portable.
+    """
+    path = shutil.which("claude")
+    if not path:
+        raise ClaudeRunError(
+            "claude CLI not found on PATH. "
+            "Install Claude Code from https://claude.ai/code and ensure it is on your PATH."
+        )
+    return path
+
+
+_CLAUDE_CMD = _find_claude()
 
 
 def run_claude(
@@ -30,7 +51,7 @@ def run_claude(
     Raises:
         ClaudeRunError: On non-zero exit or timeout.
     """
-    cmd = ["claude", "-p", prompt]
+    cmd = [_CLAUDE_CMD, "-p", prompt]
     if tools:
         cmd += ["--allowedTools", ",".join(tools)]
 
@@ -70,7 +91,7 @@ def stream_claude(
     Raises:
         ClaudeRunError: If claude exits non-zero or times out.
     """
-    cmd = ["claude", "-p", prompt]
+    cmd = [_CLAUDE_CMD, "-p", prompt]
     if tools:
         cmd += ["--allowedTools", ",".join(tools)]
 

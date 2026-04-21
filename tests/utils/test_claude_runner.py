@@ -43,7 +43,7 @@ class TestRunClaude:
             run_claude("my prompt")
 
         cmd = mock_run.call_args[0][0]
-        assert cmd[0] == "claude"
+        assert "claude" in cmd[0].lower()
         assert "-p" in cmd
         prompt_idx = cmd.index("-p")
         assert cmd[prompt_idx + 1] == "my prompt"
