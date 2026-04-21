@@ -33,7 +33,7 @@ class TestRunClaude:
             with pytest.raises(ClaudeRunError, match="exit code 1"):
                 run_claude("evaluate this job")
 
-    def test_passes_prompt_as_p_flag(self):
+    def test_passes_prompt_via_stdin(self):
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_result.stdout = "ok"
@@ -45,8 +45,9 @@ class TestRunClaude:
         cmd = mock_run.call_args[0][0]
         assert "claude" in cmd[0].lower()
         assert "-p" in cmd
-        prompt_idx = cmd.index("-p")
-        assert cmd[prompt_idx + 1] == "my prompt"
+        # Prompt is passed via stdin (input= kwarg), not as a CLI argument
+        kwargs = mock_run.call_args[1]
+        assert kwargs.get("input") == "my prompt"
 
     def test_includes_allowed_tools_when_specified(self):
         mock_result = MagicMock()

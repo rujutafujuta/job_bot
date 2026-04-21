@@ -38,7 +38,12 @@ def run_claude(
     timeout: int = 120,
 ) -> str:
     """
-    Run `claude -p <prompt>` and return stdout as a string.
+    Run `claude -p` with the prompt piped via stdin and return stdout.
+
+    Stdin is used instead of passing the prompt as a CLI argument to avoid
+    Windows batch-file (.CMD) shell parsing mangling special characters
+    (parentheses, pipes, angle brackets, etc.) that appear in Markdown CVs
+    and other structured text.
 
     Args:
         prompt: The prompt to send to Claude.
@@ -51,13 +56,14 @@ def run_claude(
     Raises:
         ClaudeRunError: On non-zero exit or timeout.
     """
-    cmd = [_CLAUDE_CMD, "-p", prompt]
+    cmd = [_CLAUDE_CMD, "-p"]
     if tools:
         cmd += ["--allowedTools", ",".join(tools)]
 
     try:
         result = subprocess.run(
             cmd,
+            input=prompt,
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -91,16 +97,20 @@ def stream_claude(
     Raises:
         ClaudeRunError: If claude exits non-zero or times out.
     """
-    cmd = [_CLAUDE_CMD, "-p", prompt]
+    cmd = [_CLAUDE_CMD, "-p"]
     if tools:
         cmd += ["--allowedTools", ",".join(tools)]
 
     proc = subprocess.Popen(
         cmd,
+        stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
     )
+    if proc.stdin:
+        proc.stdin.write(prompt)
+        proc.stdin.close()
 
     stderr_lines: list[str] = []
 
