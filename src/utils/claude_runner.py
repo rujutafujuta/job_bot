@@ -71,12 +71,18 @@ def run_claude(
     except subprocess.TimeoutExpired:
         raise ClaudeRunError(f"claude timed out after {timeout}s")
 
-    if result.returncode != 0:
-        raise ClaudeRunError(
-            f"claude exited with exit code {result.returncode}: {result.stderr.strip()}"
-        )
+    output = result.stdout.strip()
 
-    return result.stdout.strip()
+    if result.returncode != 0:
+        # A non-zero exit can be caused by post-session hooks (e.g. memory plugins)
+        # failing AFTER Claude has already written its response to stdout.
+        # If we have output, use it; only raise when stdout is empty.
+        if not output:
+            raise ClaudeRunError(
+                f"claude exited with exit code {result.returncode}: {result.stderr.strip()}"
+            )
+
+    return output
 
 
 def stream_claude(
@@ -136,7 +142,11 @@ def stream_claude(
         stderr_thread.join(timeout=5)
 
     if proc.returncode != 0:
+        # Hook failures after streaming produce non-zero exit but valid output was
+        # already yielded. Only raise when the failure looks real (non-hook stderr).
         stderr = "".join(stderr_lines).strip()
-        raise ClaudeRunError(
-            f"claude exited with exit code {proc.returncode}: {stderr}"
-        )
+        hook_failure = "hook" in stderr.lower() and "cancelled" in stderr.lower()
+        if not hook_failure:
+            raise ClaudeRunError(
+                f"claude exited with exit code {proc.returncode}: {stderr}"
+            )
