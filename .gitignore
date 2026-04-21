@@ -1,9 +1,7 @@
 config/user_profile.yaml
-config/job_preferences.yaml
-config/scraper_config.yaml
-config/target_roles.yaml
 data/
 cv.md
+.env
 
 # Playwright / browser automation artifacts
 *.png
