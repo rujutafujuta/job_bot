@@ -101,44 +101,19 @@
 
 <div class="settings-section card mt-24">
   <h2>Apify — LinkedIn / Indeed / Glassdoor</h2>
-  <p style="color:#9ca3af;font-size:0.9rem;margin-bottom:8px">
-    Apify runs cloud scrapers for premium job boards. Each entry below is one board.
-    Find actors at <strong>apify.com/store</strong> → search "jobs scraper".
+  <p style="color:#9ca3af;font-size:0.9rem;margin-bottom:4px">
+    Each entry is one Apify actor (job board). Find actors at
+    <strong>apify.com/store</strong> — the actor ID is the URL path
+    (e.g. <code>misceres/indeed-scraper</code>).
+    <code>{roles_first}</code> is replaced with each query from your target_roles.yaml.
   </p>
-  <p style="color:#9ca3af;font-size:0.85rem;margin-bottom:12px">
-    Copy the actor ID from the actor's page URL (e.g. <code>hKByXkMQaC5Qt9UMN</code>) and add a block like this to <code>config/settings.yaml</code>:
+  <p style="color:#64748b;font-size:0.8rem;margin-bottom:12px">
+    Check each actor's <strong>Input</strong> and <strong>Output</strong> tabs on apify.com
+    for the correct <code>actor_input</code> field names and <code>field_map</code> keys.
   </p>
-  <pre style="background:#111;border:1px solid #222;border-radius:6px;padding:14px;font-size:0.8rem;color:#94a3b8;overflow-x:auto">apify_actors:
-  - name: "LinkedIn Jobs"
-    actor_id: "hKByXkMQaC5Qt9UMN"
-    actor_input:
-      keywords: "{roles_first}"
-      location: "United States"
-      maxItems: 25
-    field_map:
-      title: positionName
-      company: company
-      location: location
-      url: jobUrl
-      description: description
-      date_posted: postedAt
-
-  - name: "Indeed Jobs"
-    actor_id: "misceres~indeed-scraper"
-    actor_input:
-      position: "{roles_first}"
-      location: "United States"
-      maxItems: 25
-    field_map:
-      title: positionName
-      company: company
-      location: location
-      url: url
-      description: description</pre>
-  <p style="color:#64748b;font-size:0.8rem;margin-top:8px">
-    <strong>Note:</strong> Each actor's input fields and field_map keys vary — check the actor's README on apify.com for the exact schema.
-    The <code>{roles_first}</code> placeholder is replaced with each search query from your target_roles.yaml.
-  </p>
+  <div hx-get="/settings/apify-actors" hx-trigger="load" hx-swap="innerHTML">
+    <p style="color:#555;font-size:0.85rem">Loading…</p>
+  </div>
 </div>
 
 <div class="settings-section card mt-24">
@@ -283,6 +258,14 @@ async function submitRestore(event) {
   form.append('backup_file', file);
   const res = await fetch('/settings/restore', { method: 'POST', body: form });
   document.getElementById('restore-result').innerHTML = await res.text();
+}
+
+async function saveApifyActors() {
+  const content = document.getElementById('apify-actors-editor').value;
+  const form = new FormData();
+  form.append('content', content);
+  const res = await fetch('/settings/apify-actors', { method: 'POST', body: form });
+  document.getElementById('apify-actors-status').innerHTML = await res.text();
 }
 
 async function submitCvUpload(event) {

@@ -460,6 +460,76 @@ async def save_scraper_toggles(request: Request) -> HTMLResponse:
     return HTMLResponse('<p style="color:#4ade80">Scraper settings saved.</p>')
 
 
+@app.get("/settings/apify-actors", response_class=HTMLResponse)
+async def get_apify_actors(request: Request) -> HTMLResponse:
+    """Return current apify_actors config as editable YAML."""
+    settings = load_settings()
+    actors = settings.get("apify_actors", [])
+    import yaml as _yaml
+    text = _yaml.dump(actors, default_flow_style=False, allow_unicode=True) if actors else _APIFY_ACTORS_PLACEHOLDER
+    return HTMLResponse(
+        f'<textarea id="apify-actors-editor" class="yaml-editor" style="min-height:220px">{text}</textarea>'
+        '<div id="apify-actors-status" class="save-status"></div>'
+        '<button class="btn btn-primary" style="margin-top:8px" onclick="saveApifyActors()">Save</button>'
+    )
+
+
+_APIFY_ACTORS_PLACEHOLDER = """\
+# Add one entry per Apify actor (job board).
+# Find actors at apify.com/store — copy the actor_id from the URL path.
+#
+# - name: "LinkedIn Jobs"
+#   actor_id: "hKByXkMQaC5Qt9UMN"
+#   actor_input:
+#     keywords: "{roles_first}"
+#     location: "United States"
+#     maxItems: 25
+#   field_map:
+#     title: positionName
+#     company: company
+#     location: location
+#     url: jobUrl
+#     description: description
+#     date_posted: postedAt
+#
+# - name: "Indeed Jobs"
+#   actor_id: "misceres/indeed-scraper"
+#   actor_input:
+#     position: "{roles_first}"
+#     country: "us"
+#     maxItems: 25
+#   field_map:
+#     title: positionName
+#     company: company
+#     location: location
+#     url: url
+#     description: description
+"""
+
+
+@app.post("/settings/apify-actors", response_class=HTMLResponse)
+async def save_apify_actors(request: Request) -> HTMLResponse:
+    """Save apify_actors YAML to config/settings.yaml."""
+    form = await request.form()
+    content = form.get("content", "")
+    try:
+        import yaml as _yaml
+        parsed = _yaml.safe_load(content)
+        if parsed is None:
+            parsed = []
+        if not isinstance(parsed, list):
+            return HTMLResponse(
+                '<p style="color:#f87171">Must be a YAML list (starts with <code>-</code>) or empty.</p>',
+                status_code=400,
+            )
+    except Exception as exc:
+        return HTMLResponse(f'<p style="color:#f87171">YAML error: {exc}</p>', status_code=400)
+    settings = load_settings()
+    settings["apify_actors"] = parsed
+    save_settings(settings)
+    return HTMLResponse('<p style="color:#4ade80">Apify actors saved.</p>')
+
+
 @app.get("/settings/scraper-health", response_class=HTMLResponse)
 async def scraper_health_fragment(request: Request) -> HTMLResponse:
     """HTMX fragment — scraper health table for settings page."""
