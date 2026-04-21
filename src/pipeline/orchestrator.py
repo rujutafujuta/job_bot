@@ -32,6 +32,7 @@ from src.pipeline.pdf_generator import generate_pdf
 from src.pipeline.priority_scorer import compute_priority
 from src.pipeline.resume_tailor import tailor_resume
 from src.pipeline.role_detector import generate_roles, needs_regeneration
+from src.setup.profile_extractor import extract_and_merge, needs_extraction
 from src.pipeline.scraper import run_scrapers
 from src.pipeline.stage1_scorer import Stage1Result, route_job, score_job
 from src.pipeline.stage2_evaluator import evaluate_job
@@ -86,6 +87,20 @@ def run_scrape_phase(
                 print("[orchestrator] (dry-run) would regenerate target_roles.yaml")
         else:
             print(f"[orchestrator] Warning: {cv_path} not found — skipping role regeneration")
+
+    # Step 1b — auto-populate missing profile fields from CV
+    if cv_path.exists() and profile_path.exists() and not dry_run:
+        _profile_check = load_profile(profile_path)
+        if needs_extraction(_profile_check):
+            print("[orchestrator] Profile has empty skills — extracting from cv.md")
+            try:
+                filled = extract_and_merge(cv_path, profile_path)
+                if filled:
+                    print(f"[orchestrator] Profile updated from CV: {', '.join(filled)}")
+                else:
+                    print("[orchestrator] No new fields extracted from CV")
+            except Exception as exc:
+                print(f"[orchestrator] Warning: CV extraction failed — {exc}")
 
     # Step 2 — scrape
     print("\n[orchestrator] Phase 1: Scraping")

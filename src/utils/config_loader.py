@@ -65,7 +65,23 @@ def _default_settings() -> dict:
             "simplify": True,
             "adzuna": True,
             "jobicy": True,
-        }
+        },
+        # Each entry is one Apify actor to run. Find actors at apify.com/store.
+        # Example LinkedIn actor (free tier ~100 results/mo):
+        #   - name: "LinkedIn Jobs"
+        #     actor_id: "hKByXkMQaC5Qt9UMN"
+        #     actor_input:
+        #       keywords: "{roles_first}"
+        #       location: "United States"
+        #       maxItems: 25
+        #     field_map:
+        #       title: positionName
+        #       company: company
+        #       location: location
+        #       url: jobUrl
+        #       description: description
+        #       date_posted: postedAt
+        "apify_actors": [],
     }
 
 

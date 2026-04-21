@@ -20,10 +20,8 @@ from src.utils.config_loader import load_settings
 
 _DEFAULT_ROLES_PATH = Path("config/target_roles.yaml")
 
-# All scraper classes in priority order.
-# Apify is first because it covers high-quality boards (LinkedIn, Indeed, Glassdoor).
-_ALL_SCRAPERS: list[type] = [
-    ApifyAdapter,
+# Non-Apify scrapers in priority order.
+_FREE_SCRAPERS: list[type] = [
     HimalayanScraper,
     RemotiveScraper,
     RemoteOKScraper,
@@ -88,13 +86,27 @@ def run_scrapers(
     new_jobs: list[JobPosting] = []
     total_seen = 0
 
-    for scraper_cls in _ALL_SCRAPERS:
+    # Build the full list of scrapers: one ApifyAdapter per configured actor, then free scrapers.
+    apify_actors: list[dict] = settings.get("apify_actors", [])
+    scraper_instances: list = []
+
+    if scraper_toggles.get("apify", True) and apify_actors:
+        for actor_cfg in apify_actors:
+            scraper_instances.append(ApifyAdapter(config=actor_cfg))
+    elif scraper_toggles.get("apify", True) and not apify_actors:
+        # Still instantiate once so the "not configured" warning prints
+        scraper_instances.append(ApifyAdapter(config={}))
+
+    for scraper_cls in _FREE_SCRAPERS:
         source = scraper_cls.source_name
         if not scraper_toggles.get(source, True):
             print(f"[scraper] {source}: disabled in settings — skipping")
             continue
         cfg = overrides.get(source, {})
-        scraper = scraper_cls(config=cfg)
+        scraper_instances.append(scraper_cls(config=cfg))
+
+    for scraper in scraper_instances:
+        source = scraper.source_name
 
         print(f"[scraper] Running {source}...")
         import time
