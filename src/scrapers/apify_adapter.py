@@ -40,13 +40,21 @@ class ApifyAdapter(BaseScraper):
             if len(results) >= self._max_jobs:
                 break
 
-            # Substitute {roles_first} placeholder in actor_input values
-            actor_input = {
-                k: v.replace("{roles_first}", role) if isinstance(v, str) else v
-                for k, v in self._actor_input.items()
-            }
+            # Substitute {roles_first} placeholder in actor_input values (str or list of str)
+            actor_input = {}
+            for k, v in self._actor_input.items():
+                if isinstance(v, str):
+                    actor_input[k] = v.replace("{roles_first}", role)
+                elif isinstance(v, list):
+                    actor_input[k] = [
+                        i.replace("{roles_first}", role) if isinstance(i, str) else i
+                        for i in v
+                    ]
+                else:
+                    actor_input[k] = v
 
-            url = _RUN_SYNC_URL.format(actor_id=self._actor_id)
+            url = _RUN_SYNC_URL.format(actor_id=self._actor_id.replace("/", "~"))
+            resp = None
             try:
                 time.sleep(self._delay)
                 resp = requests.post(
@@ -58,8 +66,13 @@ class ApifyAdapter(BaseScraper):
                 resp.raise_for_status()
                 items = resp.json()
             except Exception as e:
-                print(f"[apify] Error running actor for role '{role}': {e}")
-                continue
+                body = ""
+                try:
+                    body = resp.text[:300]
+                except Exception:
+                    pass
+                print(f"[apify] Error running actor for role '{role}': {e}{' — ' + body if body else ''}")
+                break  # same input will fail for all roles; stop early
 
             fm = self._field_map
             for item in items:

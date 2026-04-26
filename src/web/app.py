@@ -146,7 +146,7 @@ async def prepare_job(job_id: int, request: Request) -> EventSourceResponse:
 
     async def _stream():
         proc = await asyncio.create_subprocess_exec(
-            sys.executable, "-m", "src.pipeline.orchestrator",
+            sys.executable, "-u", "-m", "src.pipeline.orchestrator",
             "--phase", "prepare", "--job-id", str(job_id),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
@@ -249,7 +249,7 @@ async def apply_job(job_id: int, request: Request) -> EventSourceResponse:
 
     async def _stream():
         proc = await asyncio.create_subprocess_exec(
-            sys.executable, "-m", "src.pipeline.orchestrator",
+            sys.executable, "-u", "-m", "src.pipeline.orchestrator",
             "--phase", "apply", "--job-id", str(job_id),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
@@ -412,7 +412,7 @@ async def regenerate_roles(request: Request) -> EventSourceResponse:
 
     async def _stream():
         proc = await asyncio.create_subprocess_exec(
-            sys.executable, "-m", "src.pipeline.orchestrator",
+            sys.executable, "-u", "-m", "src.pipeline.orchestrator",
             "--phase", "scrape",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
@@ -651,7 +651,7 @@ async def run_pipeline(request: Request) -> EventSourceResponse:
 
         try:
             proc = await asyncio.create_subprocess_exec(
-                sys.executable, "-m", "src.pipeline.orchestrator",
+                sys.executable, "-u", "-m", "src.pipeline.orchestrator",
                 "--phase", "scrape",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,

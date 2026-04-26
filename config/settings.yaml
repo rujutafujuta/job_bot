@@ -1,0 +1,37 @@
+scrapers:
+  apify: true
+  himalayas: true
+  remotive: true
+  remoteok: true
+  simplify: true
+  adzuna: true
+  jobicy: true
+
+apify_actors:
+  - name: "Indeed Jobs"
+    actor_id: "misceres/indeed-scraper"
+    actor_input:
+      position: "{roles_first}"
+      country: "US"
+      maxItemsPerSearch: 25
+    field_map:
+      title: positionName
+      company: company
+      location: location
+      url: url
+      description: description
+      date_posted: postedAt
+
+  - name: "LinkedIn Jobs"
+    actor_id: "curious_coder/linkedin-jobs-scraper"
+    actor_input:
+      urls:
+        - "https://www.linkedin.com/jobs/search/?keywords={roles_first}&location=United+States"
+      count: 25
+    field_map:
+      title: title
+      company: companyName
+      location: location
+      url: link
+      description: descriptionText
+      date_posted: postedAt
