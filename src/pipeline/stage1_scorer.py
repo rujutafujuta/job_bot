@@ -34,7 +34,7 @@ Scoring:
 - 70-94: Good match — worth applying, some gaps but manageable
 - 0-69: Poor match — significant gaps, wrong level, excluded industry, or sponsorship conflict
 
-Auto-score 0 if: candidate needs sponsorship and role requires citizenship/no-sponsorship.
+Auto-score 0 if: candidate requires sponsorship (`requires_sponsorship: true`) and the role requires citizenship or states "no sponsorship".
 
 === CANDIDATE PROFILE SUMMARY ===
 Name: {name}
@@ -44,6 +44,7 @@ Target locations: {target_locations}
 Primary skills: {primary_skills}
 Years of experience: {years_experience}
 Work authorization: {work_auth}
+Requires sponsorship: {requires_sponsorship}
 Industries to avoid: {excluded_industries}
 
 === JOB POSTING ===
@@ -75,6 +76,10 @@ def score_job(posting: JobPosting, profile: dict) -> Stage1Result:
     target_locations = target.get("locations", [])
     locations_str = ", ".join(target_locations) if target_locations else "anywhere"
 
+    # Visa supports both new (statuses: list) and legacy (status: str) schemas
+    statuses = visa.get("statuses") or ([visa["status"]] if visa.get("status") else [])
+    work_auth_str = ", ".join(s for s in statuses if s) or "unknown"
+
     prompt = _PROMPT_TEMPLATE.format(
         name=personal.get("full_name", "Candidate"),
         target_roles=", ".join(target.get("roles", [])),
@@ -82,7 +87,8 @@ def score_job(posting: JobPosting, profile: dict) -> Stage1Result:
         target_locations=locations_str,
         primary_skills=", ".join(skills.get("primary", [])),
         years_experience=skills.get("years_experience", 0),
-        work_auth=visa.get("status", "unknown"),
+        work_auth=work_auth_str,
+        requires_sponsorship="yes" if visa.get("requires_sponsorship") else "no",
         excluded_industries=", ".join(target.get("industries_excluded", [])) or "none",
         title=posting.title,
         company=posting.company,
@@ -94,7 +100,9 @@ def score_job(posting: JobPosting, profile: dict) -> Stage1Result:
         raw = run_claude(prompt, timeout=30)
         json_match = re.search(r"\{.*\}", raw, re.DOTALL)
         if not json_match:
-            return Stage1Result(score=0, reasoning="Parse error: no JSON in response")
+            snippet = (raw or "<empty>")[:200].replace("\n", " ")
+            print(f"[stage1] No JSON in response for {posting.company}/{posting.title}: {snippet}")
+            return Stage1Result(score=0, reasoning=f"Parse error: no JSON ({snippet[:80]})")
         data = json.loads(json_match.group())
         return Stage1Result(
             score=max(0, min(100, int(data.get("score", 0)))),

@@ -614,20 +614,31 @@ class _ProfileWizardWindow:
         v = ex.get("visa", {})
         card = self._card(parent, "2. Work Authorization")
 
-        status_options = ["US Citizen", "Green Card", "H1B", "OPT", "CPT", "TN", "Need Sponsorship", "Other"]
-        self._visa_status = tk.StringVar(value=v.get("status", "US Citizen"))
-        self._vars["visa_status"] = self._visa_status
+        # Existing values support both old (status: str) and new (statuses: list) schemas
+        existing_statuses: list[str] = list(v.get("statuses") or [])
+        if not existing_statuses and v.get("status"):
+            existing_statuses = [v["status"]]
 
-        row = tk.Frame(card, bg=self._CARD)
-        row.pack(fill="x", padx=12, pady=4)
-        tk.Label(row, text="Authorization type:", bg=self._CARD, fg=self._FG,
-                 font=("Segoe UI", 9)).pack(anchor="w")
-        rb_frame = tk.Frame(row, bg=self._CARD)
-        rb_frame.pack(anchor="w", pady=2)
+        status_options = ["US Citizen", "Green Card", "H1B", "OPT", "CPT", "TN", "Other"]
+
+        tk.Label(card, text="Authorization (check all that apply):",
+                 bg=self._CARD, fg=self._FG, font=("Segoe UI", 9)).pack(
+                 anchor="w", padx=12, pady=(4, 0))
+        cb_frame = tk.Frame(card, bg=self._CARD)
+        cb_frame.pack(anchor="w", padx=12, pady=2)
         for opt in status_options:
-            tk.Radiobutton(rb_frame, text=opt, variable=self._visa_status, value=opt,
+            bvar = self._bv(f"visa_st_{opt}", opt in existing_statuses)
+            tk.Checkbutton(cb_frame, text=opt, variable=bvar,
                            bg=self._CARD, fg=self._FG, selectcolor=self._INPUT_BG,
                            activebackground=self._CARD, font=("Segoe UI", 9)).pack(side="left", padx=4)
+
+        sponsor_row = tk.Frame(card, bg=self._CARD)
+        sponsor_row.pack(fill="x", padx=12, pady=(6, 0))
+        tk.Checkbutton(sponsor_row, text="I will need visa sponsorship in the future",
+                       variable=self._bv("visa_needs_sponsorship",
+                                         bool(v.get("requires_sponsorship", False))),
+                       bg=self._CARD, fg=self._FG, selectcolor=self._INPUT_BG,
+                       activebackground=self._CARD, font=("Segoe UI", 9)).pack(anchor="w")
 
         expiry_row = tk.Frame(card, bg=self._CARD)
         expiry_row.pack(fill="x", padx=12, pady=(4, 8))
@@ -908,10 +919,14 @@ class _ProfileWizardWindow:
             return [o for o in options if bv(f"{prefix}{o}")]
 
         # --- visa ---
-        visa_status = sv("visa_status")
+        status_options = ["US Citizen", "Green Card", "H1B", "OPT", "CPT", "TN", "Other"]
+        visa_statuses = [opt for opt in status_options if bv(f"visa_st_{opt}")]
+        needs_sponsorship = bv("visa_needs_sponsorship")
         visa = {
-            "status": visa_status,
-            "requires_sponsorship": visa_status == "Need Sponsorship",
+            "statuses": visa_statuses,
+            # Keep "status" as a comma-joined summary for tools/forms expecting a single string
+            "status": ", ".join(visa_statuses) if visa_statuses else "",
+            "requires_sponsorship": needs_sponsorship,
             "authorized_to_work": True,
             "work_auth_expiry": sv("visa_expiry"),
         }

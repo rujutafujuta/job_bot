@@ -82,7 +82,15 @@ def run_scrape_phase(
         if cv_path.exists():
             print("[orchestrator] cv.md changed — regenerating target_roles.yaml")
             if not dry_run:
-                generate_roles(cv_path, roles_path, dry_run=False, force=True)
+                _rp = "any"
+                if profile_path.exists():
+                    try:
+                        _rp = (load_profile(profile_path).get("target", {})
+                               .get("remote_preference", "any"))
+                    except Exception:
+                        pass
+                generate_roles(cv_path, roles_path, dry_run=False, force=True,
+                               remote_preference=_rp)
             else:
                 print("[orchestrator] (dry-run) would regenerate target_roles.yaml")
         else:
@@ -126,6 +134,8 @@ def run_scrape_phase(
 
     n_scored = n_ready = n_discarded = n_dup = 0
     ready_job_ids: list[int] = []
+    consecutive_parse_errors = 0
+    _PARSE_ERROR_THRESHOLD = 5
 
     for posting in postings:
         if is_duplicate(posting.title, posting.company, db_path) or \
@@ -138,6 +148,21 @@ def run_scrape_phase(
             f"[orchestrator] {posting.company} / {posting.title}: "
             f"score={result.score} — {result.reasoning[:60]}"
         )
+
+        # Abort if Claude is consistently returning empty/non-JSON responses
+        # (usage limit, network outage, etc) — burning through hundreds of
+        # jobs as score=0 just discards real matches.
+        if "Parse error" in result.reasoning or "Claude error" in result.reasoning:
+            consecutive_parse_errors += 1
+            if consecutive_parse_errors >= _PARSE_ERROR_THRESHOLD:
+                print(
+                    f"[orchestrator] Aborting Phase 2: {consecutive_parse_errors} "
+                    "consecutive Claude failures. Likely a usage limit or outage. "
+                    "Re-run later — already-scored jobs are saved."
+                )
+                break
+        else:
+            consecutive_parse_errors = 0
 
         if dry_run:
             if result.score >= 95:

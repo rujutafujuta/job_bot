@@ -20,7 +20,7 @@ class JobicyScraper(BaseScraper):
     _DEFAULT_DELAY = 1
 
     def scrape(self, queries: list[str]) -> list[JobPosting]:
-        params = {"count": 50, "geo": "worldwide"}
+        params = {"count": 50}
         try:
             resp = self._get(_API_URL, params=params)
             data = resp.json()

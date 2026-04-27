@@ -21,24 +21,32 @@ generated_at: {today}
 resume_based:
   - title: "Role Title Here"
     queries:
-      - "role title remote"
-      - "role title variant remote"
+      - "role title"
+      - "role title variant"
 exploratory:
   - title: "Adjacent Role Title"
     queries:
-      - "adjacent role remote"
+      - "adjacent role"
 
 Rules:
 - resume_based: roles the candidate is clearly qualified for based on their experience
 - exploratory: adjacent roles they could reasonably target with their background
-- Each role should have 2-3 search query variants (include "remote" for remote-friendly roles)
+- Each role should have 2-3 short search query variants (1-5 words each)
+- {remote_rule}
 - 3-6 resume_based roles, 2-4 exploratory roles
 - No duplicate titles
-- Use common job board search terms
+- Use common job board search terms — keep queries concise
 
 === MASTER CV ===
 {cv_content}
 """
+
+_REMOTE_RULES = {
+    "remote": 'Append " remote" to every query — the candidate only wants remote roles.',
+    "onsite": 'Do NOT append "remote" to any query — the candidate only wants on-site roles.',
+    "hybrid": 'Append " hybrid" to about half of the queries — the candidate prefers hybrid roles.',
+    "any": 'Do NOT append "remote" to any query — leave queries open so both remote and on-site postings match.',
+}
 
 
 def needs_regeneration(cv_path: Path, roles_path: Path) -> bool:
@@ -60,6 +68,7 @@ def generate_roles(
     roles_path: Path,
     dry_run: bool = False,
     force: bool = False,
+    remote_preference: str = "any",
 ) -> dict:
     """
     Generate target_roles.yaml from cv.md using Claude Code CLI.
@@ -69,6 +78,8 @@ def generate_roles(
         roles_path: Path to write target_roles.yaml.
         dry_run: If True, run Claude but don't write the file.
         force: If False, skip Claude call when roles file is already up to date.
+        remote_preference: One of "remote", "onsite", "hybrid", "any" — controls
+            whether queries get "remote"/"hybrid" suffixes appended.
 
     Returns:
         Parsed roles dict.
@@ -84,9 +95,11 @@ def generate_roles(
 
     from datetime import date
     cv_content = cv_path.read_text(encoding="utf-8")
+    remote_rule = _REMOTE_RULES.get(remote_preference, _REMOTE_RULES["any"])
     prompt = _PROMPT_TEMPLATE.format(
         today=date.today().isoformat(),
         cv_content=cv_content,
+        remote_rule=remote_rule,
     )
 
     raw_yaml = run_claude(prompt, timeout=60)
