@@ -48,6 +48,10 @@
     Scored (70–94)
     <span class="badge badge-scored" style="margin-left:6px">{{ scored_jobs | length }}</span>
   </button>
+  <button class="tab-btn" onclick="switchTab('discarded', this)">
+    Discarded (&lt;70)
+    <span class="badge" style="margin-left:6px;background:#3f3f46;color:#aaa">{{ discarded_jobs | length }}</span>
+  </button>
 </div>
 
 <!-- Ready Tab -->
@@ -184,6 +188,57 @@
   <div class="empty-state">
     <p>No scored jobs yet.</p>
     <p class="text-muted mt-16">Jobs scoring 70–94 will appear here after the pipeline runs.</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Discarded Tab -->
+<div id="tab-discarded" class="tab-pane">
+  {% if discarded_jobs %}
+    <p class="text-muted" style="font-size:0.82rem;margin-bottom:12px">
+      Stage 1 scored these below 70. Promote any you'd still like to apply to —
+      they'll move to the Scored tab where you can run Stage 2 evaluation.
+    </p>
+    {% for job in discarded_jobs %}
+    <div class="job-card" id="job-{{ job.id }}">
+      <div class="job-card-header">
+        <div>
+          <div class="job-title">{{ job.title }}</div>
+          <div class="job-company">{{ job.company }}{% if job.location %} · {{ job.location }}{% endif %}</div>
+          <div class="job-meta">
+            <span class="score-badge" style="background:#3f3f46;color:#d4d4d8">Stage 1: {{ job.stage1_score }}/100</span>
+          </div>
+          {% if job.stage1_reasoning %}
+          <div class="text-muted" style="margin-top:6px;font-size:0.82rem">{{ job.stage1_reasoning }}</div>
+          {% endif %}
+        </div>
+        <div style="flex-shrink:0">
+          <a href="{{ job.url }}" target="_blank" class="btn-sm btn-gray" style="text-decoration:none;display:inline-block">View ↗</a>
+        </div>
+      </div>
+
+      <div class="job-actions">
+        <button class="btn-sm btn-blue"
+          hx-post="/promote/{{ job.id }}"
+          hx-target="#job-{{ job.id }}"
+          hx-swap="outerHTML"
+          hx-confirm="Promote this job to Scored? You'll be able to run Stage 2 on it.">
+          Promote → Scored
+        </button>
+        <button class="btn-sm btn-gray"
+          hx-post="/skip/{{ job.id }}"
+          hx-target="#job-{{ job.id }}"
+          hx-swap="outerHTML"
+          hx-confirm="Permanently skip this job?">
+          Skip
+        </button>
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+  <div class="empty-state">
+    <p>No discarded jobs yet.</p>
+    <p class="text-muted mt-16">Jobs that Stage 1 scores below 70 will appear here.</p>
   </div>
   {% endif %}
 </div>

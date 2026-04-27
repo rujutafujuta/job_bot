@@ -125,6 +125,7 @@ async def stats_fragment(request: Request) -> HTMLResponse:
 async def review(request: Request) -> HTMLResponse:
     ready_jobs = get_jobs_by_status("ready", _DB_PATH)
     scored_jobs = get_jobs_by_status("scored", _DB_PATH)
+    discarded_jobs = get_jobs_by_status("discarded", _DB_PATH)
 
     # Attach report text for ready jobs that have a report on disk
     for job in ready_jobs:
@@ -136,7 +137,12 @@ async def review(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
         request=request,
         name="review.html",
-        context={"ready_jobs": ready_jobs, "scored_jobs": scored_jobs, "priority_label": priority_label},
+        context={
+            "ready_jobs": ready_jobs,
+            "scored_jobs": scored_jobs,
+            "discarded_jobs": discarded_jobs,
+            "priority_label": priority_label,
+        },
     )
 
 
@@ -166,6 +172,14 @@ async def skip_job(job_id: int) -> JSONResponse:
     """Mark a job as skipped."""
     updated = update_job_by_id(job_id, {"status": "skipped"}, _DB_PATH)
     return JSONResponse({"ok": updated})
+
+
+@app.post("/promote/{job_id}", response_class=HTMLResponse)
+async def promote_job(job_id: int) -> HTMLResponse:
+    """Promote a discarded job to 'scored' so it can run Stage 2 evaluation."""
+    update_job_by_id(job_id, {"status": "scored"}, _DB_PATH)
+    # Return empty so the htmx swap removes the row from the discarded tab.
+    return HTMLResponse("")
 
 
 @app.get("/applied", response_class=HTMLResponse)

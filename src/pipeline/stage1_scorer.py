@@ -16,8 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from src.scrapers.base import JobPosting
-from src.tracking.db import _DEFAULT_DB, mark_discarded
-from src.tracking.deduplication import compute_hash, record_seen
+from src.tracking.db import _DEFAULT_DB
+from src.tracking.deduplication import record_seen
 from src.utils.claude_runner import run_claude
 
 _MAX_DESCRIPTION_CHARS = 6000
@@ -124,15 +124,17 @@ def route_job(
     """
     Store the job based on its Stage 1 score.
 
-    Returns the action taken: "discarded", "scored", or "ready".
+    All scored jobs land in the main `jobs` table — score < 70 land with
+    status='discarded' so they remain searchable/promotable in the dashboard
+    instead of being dropped to a hash-only row. Returns "discarded",
+    "scored", or "ready".
     """
-    h = compute_hash(posting.title, posting.company)
-
-    if result.score < 70:
-        mark_discarded(h, posting.title, posting.company, posting.source, db_path)
-        return "discarded"
-
-    status = "ready" if result.score >= 95 else "scored"
+    if result.score >= 95:
+        status = "ready"
+    elif result.score >= 70:
+        status = "scored"
+    else:
+        status = "discarded"
 
     record_seen(
         title=posting.title,
