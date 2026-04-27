@@ -37,6 +37,7 @@ from src.tracking.db import (
     list_contacts,
     get_scraper_health,
     get_stale_scrapers,
+    get_last_pipeline_run,
     list_outreach_messages,
     update_job_by_id,
     update_outreach_status,
@@ -73,6 +74,7 @@ async def dashboard(request: Request) -> HTMLResponse:
     followups_due = get_followup_due(db_path=_DB_PATH)
     integrity = get_latest_integrity_result()
     stale_scrapers = get_stale_scrapers(threshold_days=3, db_path=_DB_PATH)
+    last_run = get_last_pipeline_run(db_path=_DB_PATH)
     return templates.TemplateResponse(
         request=request,
         name="dashboard.html",
@@ -88,6 +90,7 @@ async def dashboard(request: Request) -> HTMLResponse:
             "applied": counts.get("applied", 0),
             "integrity": integrity,
             "stale_scrapers": stale_scrapers,
+            "last_run": last_run,
         },
     )
 

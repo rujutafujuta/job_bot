@@ -4,6 +4,21 @@
 {% block content %}
 <h1>Dashboard</h1>
 
+{% if last_run %}
+<div style="background:#0f172a;border:1px solid #1e3a5f;border-radius:6px;padding:10px 14px;margin-bottom:16px;color:#93c5fd;font-size:0.88rem;display:flex;align-items:center;gap:10px">
+  <span>🕒 Last pipeline run:
+    <strong><span class="last-run-rel" data-iso="{{ last_run.last_run_date }}">{{ last_run.last_run_date }}</span></strong>
+    — {{ last_run.total_jobs_found }} jobs found across {{ last_run.source_count }} source(s),
+    {{ last_run.total_passed_stage1 }} new
+    {% if last_run.error_count %}<span style="color:#fca5a5">· {{ last_run.error_count }} source error(s)</span>{% endif %}
+  </span>
+</div>
+{% else %}
+<div style="background:#1f2937;border:1px solid #374151;border-radius:6px;padding:10px 14px;margin-bottom:16px;color:#9ca3af;font-size:0.88rem">
+  🕒 No pipeline runs yet — click <strong>Run Pipeline</strong> to start.
+</div>
+{% endif %}
+
 {% if integrity and not integrity.passed %}
 <div style="background:#450a0a;border:1px solid #7f1d1d;border-radius:6px;padding:12px 16px;margin-bottom:16px;color:#fca5a5">
   ⚠ Integrity check failed ({{ integrity.date }}) — {{ integrity.failure_count }} failure(s), {{ integrity.warning_count }} warning(s).
@@ -167,6 +182,30 @@
 </div>
 
 <script>
+// Render any element with .last-run-rel as a friendly relative time.
+(function () {
+  const fmt = (iso) => {
+    const t = new Date(iso);
+    if (isNaN(t)) return iso;
+    const diff = Math.floor((Date.now() - t.getTime()) / 1000);
+    if (diff < 60) return "just now";
+    if (diff < 3600) return Math.floor(diff / 60) + " min ago";
+    if (diff < 86400) {
+      const h = Math.floor(diff / 3600);
+      return h + (h === 1 ? " hour ago" : " hours ago");
+    }
+    const d = Math.floor(diff / 86400);
+    if (d < 7) return d + (d === 1 ? " day ago" : " days ago");
+    return t.toLocaleDateString() + " " + t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  };
+  document.querySelectorAll(".last-run-rel").forEach(el => {
+    const iso = el.dataset.iso;
+    if (!iso) return;
+    el.textContent = fmt(iso);
+    el.title = new Date(iso).toLocaleString();
+  });
+})();
+
 function filterActivity() {
   const query = document.getElementById('activity-search').value.toLowerCase();
   const status = document.getElementById('activity-status').value;

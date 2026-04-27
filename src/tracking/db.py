@@ -603,3 +603,41 @@ def get_stale_scrapers(threshold_days: int = 3, db_path: Path = _DEFAULT_DB) -> 
         for row in get_scraper_health(db_path=db_path)
         if row["consecutive_zero_days"] >= threshold_days
     ]
+
+
+def get_last_pipeline_run(db_path: Path = _DEFAULT_DB) -> dict | None:
+    """
+    Summarize the most recent pipeline run.
+
+    Aggregates rows in scraper_runs within a 30-minute window of the latest
+    run_date — that batch represents one orchestrator invocation across all
+    enabled scrapers. Returns None if no runs have been recorded.
+    """
+    with _connect(db_path) as conn:
+        latest = conn.execute(
+            "SELECT MAX(run_date) AS last_run FROM scraper_runs"
+        ).fetchone()
+        if not latest or not latest["last_run"]:
+            return None
+        last_run = latest["last_run"]
+        batch = conn.execute(
+            """
+            SELECT
+              COUNT(*)                 AS source_count,
+              SUM(jobs_found)          AS total_jobs_found,
+              SUM(jobs_passed_stage1)  AS total_passed_stage1,
+              SUM(CASE WHEN error_message IS NOT NULL AND error_message != ''
+                       THEN 1 ELSE 0 END) AS error_count
+            FROM scraper_runs
+            WHERE run_date >= datetime(?, '-30 minutes')
+              AND run_date <= ?
+            """,
+            (last_run, last_run),
+        ).fetchone()
+        return {
+            "last_run_date": last_run,
+            "source_count": batch["source_count"] or 0,
+            "total_jobs_found": batch["total_jobs_found"] or 0,
+            "total_passed_stage1": batch["total_passed_stage1"] or 0,
+            "error_count": batch["error_count"] or 0,
+        }
